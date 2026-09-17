@@ -1,0 +1,11 @@
+{
+  "name": "mhxy-cbg-manager",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "纯静态前端，不需要 npm install。此文件存在的唯一目的是让 node 能直接以 ESM 方式加载 src/ 下的模块，便于跑自测脚本（node test/verify.js）。",
+  "scripts": {
+    "serve": "python3 -m http.server 8765",
+    "test": "node test/verify.js"
+  }
+}

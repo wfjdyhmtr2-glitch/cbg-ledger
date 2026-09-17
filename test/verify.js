@@ -10,7 +10,7 @@
 
 import { calcFee, netFromGross, grossFromNet } from '../src/core/fee.js';
 import { computeAll, computeRole, allocateRoleCost } from '../src/core/compute.js';
-import { demoData, round2 } from '../src/core/model.js';
+import { demoData, round2, roleOptionsForZone, normalizeZone } from '../src/core/model.js';
 
 let pass = 0;
 let fail = 0;
@@ -384,6 +384,54 @@ t('演示数据：两种视角总盈亏一致', () => {
   const a = computeAll(demoData(), { view: 'project' });
   const b = computeAll(demoData(), { view: 'unit' });
   eq(a.totals.totalProfit, b.totals.totalProfit, 0.02);
+});
+
+group('八、商品表单「来源角色」按区服过滤');
+
+t('填了区服就只列同区角色', () => {
+  const { roles } = demoData();
+  const z1 = '华南一区·缘定三生';
+  const names = roleOptionsForZone(roles, z1, null).map((r) => r.name);
+  ok(names.includes('剑影流光'), z1 + ' 应包含剑影流光');
+  ok(names.includes('小号·灵犀'), z1 + ' 应包含小号·灵犀');
+  ok(!names.includes('雨落青衫'), '不该出现别的区的雨落青衫');
+  ok(!names.includes('风起长林'), '不该出现别的区的风起长林');
+});
+
+t('换区服后候选跟着换', () => {
+  const { roles } = demoData();
+  const names = roleOptionsForZone(roles, '华东二区·月光宝盒', null).map((r) => r.name);
+  ok(names.includes('雨落青衫'), '应包含本区角色');
+  ok(!names.includes('剑影流光'), '不该再出现华南一区的角色');
+});
+
+t('区服没填就不做区服过滤', () => {
+  const { roles } = demoData();
+  const names = roleOptionsForZone(roles, '', null).map((r) => r.name);
+  ok(names.length >= 3, '空区服时应列出各区在手角色，实际 ' + names.length + ' 个');
+  ok(!names.includes('风起长林'), '已售角色仍然要排除');
+});
+
+t('已售角色不能挂，但本来就是它的要保留（编辑时不丢回显）', () => {
+  const { roles } = demoData();
+  const sold = roles.find((r) => r.status === 'sold');
+  ok(!roleOptionsForZone(roles, '', null).some((r) => r.id === sold.id), '已售角色不该出现在候选里');
+  const kept = roleOptionsForZone(roles, '', sold.id);
+  ok(kept.some((r) => r.id === sold.id), '正在编辑的那条，即使角色已售也要保留选中项');
+});
+
+t('跨区时保留已选中的角色，不回显成空白', () => {
+  const { roles } = demoData();
+  const z1Role = roles.find((r) => normalizeZone(r.zone) === '华南一区·缘定三生');
+  const kept = roleOptionsForZone(roles, '华北三区·雷霆万钧', z1Role.id);
+  ok(kept.some((r) => r.id === z1Role.id), '已选中的角色必须留在列表里，否则 select 会显示空白');
+});
+
+t('某个区没有在手角色时，候选为空（表单给出提示）', () => {
+  const { roles } = demoData();
+  // 华北三区只有一个角色且已售出
+  const names = roleOptionsForZone(roles, '华北三区·雷霆万钧', null);
+  eq(names.length, 0);
 });
 
 t('金额字段不会出现 NaN', () => {

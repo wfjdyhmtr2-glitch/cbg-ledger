@@ -6,8 +6,8 @@
  * 列表由 collectZoneNames 自动汇总，所以你录到哪个区，哪个区就自动出现。
  */
 
-import { newRole, newProduct, newAsset, newChar, plain, todayStr, daysBetween, CATEGORIES, SCHOOLS, num, collectZoneNames, assetLockInfo, ASSET_LOCK_DAYS, subOptionsOf } from '../core/model.js';
-import { state } from '../core/store.js';
+import { newRole, newProduct, newAsset, newChar, plain, todayStr, daysBetween, CATEGORIES, SCHOOLS, num, collectZoneNames, assetLockInfo, ASSET_LOCK_DAYS, subOptionsOf, normalizeZone, roleOptionsForZone } from '../core/model.js';
+import { state, notify } from '../core/store.js';
 import { calcFee, netFromGross, feeRuleText } from '../core/fee.js';
 import { money } from '../core/format.js';
 
@@ -137,6 +137,11 @@ export const ProductForm = {
       if (!String(this.f.zone || '').trim()) return '请填写区服名称';
       return true;
     },
+    /** 从「来源角色」反填区服：角色在哪个区，这票货就在哪个区 */
+    syncZoneFromRole() {
+      const r = (this.roles || []).find((x) => x.id === this.f.role_id);
+      if (r && String(r.zone || '').trim()) this.f.zone = r.zone;
+    },
   },
   data() {
     const f = JSON.parse(JSON.stringify(this.model || this.blank()));
@@ -148,8 +153,10 @@ export const ProductForm = {
   },
   computed: {
     parent() { return (this.roles || []).find((r) => r.id === this.f.role_id) || null; },
+    /** 当前区服是否已填（没填就不做区服过滤，否则新增时啥都选不到） */
+    zoneFiltered() { return !!String(this.f.zone || '').trim(); },
     roleOptions() {
-      return (this.roles || []).filter((r) => r.status !== 'sold' || r.id === this.f.role_id);
+      return roleOptionsForZone(this.roles, this.f.zone, this.f.role_id);
     },
     feeTip() {
       const p = num(this.f.listed_price);
@@ -178,6 +185,18 @@ export const ProductForm = {
         this.f.sub_category = '';
       }
     },
+    'f.zone'(val) {
+      // 区服一改，原来挂着的角色可能就不在这个区了 —— 一票货的买入区不该跨区，
+      // 这时清掉角色选择退回「独立采购」，否则会记出一条自相矛盾的账。
+      if (!this.f.role_id) return;
+      const zone = String(val || '').trim();
+      if (!zone) return;
+      const r = (this.roles || []).find((x) => x.id === this.f.role_id);
+      if (r && normalizeZone(r.zone) !== normalizeZone(zone)) {
+        this.f.role_id = null;
+        notify(`区服换成「${zone}」了，已取消「${r.name}」的拆号关系，改成独立采购`, 'info');
+      }
+    },
   },
   template: `
   <Modal :title="model ? '编辑商品' : '新增商品'" width="680px"
@@ -202,11 +221,17 @@ export const ProductForm = {
           <option v-for="s in subOptions" :key="s" :value="s">{{ s }}</option>
         </select>
       </Field>
-      <Field label="来源角色" hint="选角色 = 拆号出来的；留空 = 自己单独买的">
-        <select class="input" v-model="f.role_id">
+      <Field label="来源角色"
+        :hint="zoneFiltered
+          ? '只列出「' + String(f.zone).trim() + '」的在手角色；选角色 = 拆号出来的，留空 = 自己单独买的'
+          : '选角色 = 拆号出来的；留空 = 自己单独买的'">
+        <select class="input" v-model="f.role_id" @change="syncZoneFromRole">
           <option :value="null">— 独立采购 —</option>
           <option v-for="r in roleOptions" :key="r.id" :value="r.id">{{ r.name }}</option>
         </select>
+        <p class="muted small" v-if="zoneFiltered && !roleOptions.length" style="margin-top: 6px">
+          「{{ String(f.zone).trim() }}」下没有可挂的角色 —— 该区还没录角色，或角色都已售出
+        </p>
       </Field>
 
       <Field label="买入价" :hint="parent ? '成本已算在角色「' + parent.name + '」头上，这里填 0 即可' : (f.from_asset ? '固定资产流出的东西，建议填它的原购入成本，盈亏才准' : '')">

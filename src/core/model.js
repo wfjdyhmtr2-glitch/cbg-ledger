@@ -119,6 +119,28 @@ export function normalizeZone(name) {
   return s || NO_ZONE;
 }
 
+/**
+ * 商品表单「来源角色」的候选名单 —— 录商品时能挂到哪个号下。
+ *
+ * 规则：
+ *  - 已售出的角色不能挂（已经被卖掉的不该再拆东西）；
+ *  - 填了区服就只列同区角色 —— 一票货的买入区不该跨区，跨区只是「卖出地」；
+ *  - keepId 永远保留：正在编辑的这条本来就挂着它，不保留的话一打开编辑框选中项就被吞了。
+ *
+ * @param {object[]} roles
+ * @param {string} zone 表单里当前的区服
+ * @param {string|null} keepId 当前已选中的角色 id
+ */
+export function roleOptionsForZone(roles, zone, keepId) {
+  const z = String(zone || '').trim();
+  const zk = z ? normalizeZone(z) : '';
+  return (roles || []).filter((r) => {
+    if (r.status === 'sold' && r.id !== keepId) return false;
+    if (!zk) return true;
+    return normalizeZone(r.zone) === zk || r.id === keepId;
+  });
+}
+
 /** 去掉核算引擎附加上去的临时字段（下划线开头），只留要落库的原始字段 */
 export function plain(obj) {
   const out = {};

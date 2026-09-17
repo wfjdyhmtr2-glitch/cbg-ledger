@@ -259,22 +259,47 @@ export function computeAll(state, opts = {}) {
 
   const roleById = Object.fromEntries(roles.map((r) => [r.id, r]));
   const roleRows = roles.map((r) => computeRole(r, products, { view, today, alloc: allocByRole[r.id] }));
+  const roleCostById = Object.fromEntries(roleRows.map((r) => [r.id, r._cost]));
+
+  /**
+   * 这件拆号商品的成本该「自己背」还是「从母角色摊」？
+   *
+   * 正常拆号：成本记在母角色头上，商品这本只记收入，所以成本取分摊值。
+   * 例外：母角色压根没记成本（买入价留空），或者角色被删掉了 —— 这时分摊值只能是 0。
+   *       若不兜底，这件商品的成本就被当成 0，整笔成交额会被记成利润，实际盈亏虚高。
+   *       这种情形下退回用商品自己填的买入价，并把它计入总投入 / 已售资产成本。
+   *       （母角色有成本时不受影响，避免同一笔钱被角色和商品重复计一次。）
+   */
+  const ownCostProduct = (p) => {
+    if (!p.role_id) return true; // 独立采购，本来就自己背
+    return !(num(roleCostById[p.role_id]) > 0);
+  };
+
   const productRows = products.map((p) => {
+    const attached = !!p.role_id;
+    const fallback = attached && ownCostProduct(p);
+    const share = attached ? (allocByRole[p.role_id]?.map[p.id] ?? null) : null;
     const row = computeProduct(p, {
       view,
       today,
-      unitCost: p.role_id ? (allocByRole[p.role_id]?.map[p.id] ?? null) : null,
+      // 兜底时用商品自填的买入价当作它的成本；正常拆号仍走母角色的分摊值
+      unitCost: attached ? (fallback ? num(p.purchase_price) : share) : null,
     });
     // 列表里要显示「拆自 xxx」，把来源角色名一并带上，省得模板里再去查
-    row.roleName = p.role_id ? (roleById[p.role_id]?.name || '') : '';
+    row.roleName = attached ? (roleById[p.role_id]?.name || '') : '';
+    // 成本是不是自己背的 —— 总额 / 区服 / 时间轴都按这个口径归集
+    row._ownCost = ownCostProduct(p);
     return row;
   });
 
-  // ---- 投入：角色成本 + 无母角色的独立商品成本
+  // ---- 投入：角色成本 + 所有「自己背成本」的商品（独立采购 + 母角色没记成本的兜底）
   const roleInvest = round2(roleRows.reduce((s, r) => s + r._cost, 0));
   const standalone = productRows.filter((p) => !p.role_id);
   const standaloneInvest = round2(standalone.reduce((s, p) => s + num(p.purchase_price), 0));
-  const totalInvest = round2(roleInvest + standaloneInvest);
+  // 母角色没记成本、靠着自填买入价兜底的拆号商品 —— 那也是真金白银的投入
+  const fallbackRows = productRows.filter((p) => p.role_id && p._ownCost);
+  const fallbackInvest = round2(fallbackRows.reduce((s, p) => s + num(p.purchase_price), 0));
+  const totalInvest = round2(roleInvest + standaloneInvest + fallbackInvest);
 
   // ---- 回款：角色本体（含空壳号）成交净额 + 所有已售商品净额
   const roleRecovered = round2(roleRows.reduce((s, r) => s + r._roleNet, 0));
@@ -291,10 +316,11 @@ export function computeAll(state, opts = {}) {
   const totalOnHand = round2(roleOnHand + productOnHand);
 
   // ---- 已实现盈亏 = 回款 − 已售资产成本（成本按单品口径分摊，跨视角保持一致）
-  // 角色行的 _soldCost 已含「空壳号成本 + 名下已售商品的分摊成本」，故此处不再重复计商品
+  // 角色行的 _soldCost 已含「空壳号成本 + 名下已售商品的分摊成本」，故此处不再重复计商品；
+  // 只再补上「自己背成本」的那批商品（独立采购 + 兜底商品），它们没被角色成本覆盖过。
   const soldCostTotal = round2(
     roleRows.reduce((s, r) => s + r._soldCost, 0) +
-    standalone.filter((p) => p.status === 'sold').reduce((s, p) => s + num(p.purchase_price), 0)
+    productRows.filter((p) => p._ownCost && p.status === 'sold').reduce((s, p) => s + num(p.purchase_price), 0)
   );
   const realizedProfit = round2(totalRecovered - soldCostTotal);
   const totalProfit = round2(totalRecovered + totalOnHand - totalInvest);
@@ -314,11 +340,12 @@ export function computeAll(state, opts = {}) {
     .map((zname) => {
       const zRoles = roleRows.filter((r) => normalizeZone(r.zone) === zname);
       const zAllProducts = productRows.filter((p) => normalizeZone(p.zone) === zname);
-      const zStandalone = standalone.filter((p) => normalizeZone(p.zone) === zname);
+      // 自己背成本的商品（独立采购 + 母角色没记成本的兜底）才算进这个区的投入
+      const zOwnCost = zAllProducts.filter((p) => p._ownCost);
 
       const invest = round2(
         zRoles.reduce((s, r) => s + r._cost, 0) +
-        zStandalone.reduce((s, p) => s + num(p.purchase_price), 0)
+        zOwnCost.reduce((s, p) => s + num(p.purchase_price), 0)
       );
       const recovered = round2(
         zRoles.reduce((s, r) => s + r._roleNet, 0) +
@@ -330,7 +357,7 @@ export function computeAll(state, opts = {}) {
       );
       const soldCost = round2(
         zRoles.reduce((s, r) => s + r._soldCost, 0) +
-        zStandalone.filter((p) => p.status === 'sold').reduce((s, p) => s + num(p.purchase_price), 0)
+        zOwnCost.filter((p) => p.status === 'sold').reduce((s, p) => s + num(p.purchase_price), 0)
       );
 
       const zSoldCycles = [
@@ -472,6 +499,7 @@ export function computeAll(state, opts = {}) {
       invest: totalInvest,
       roleInvest,
       standaloneInvest,
+      fallbackInvest,
       recovered: totalRecovered,
       roleRecovered,
       productRecovered,
@@ -537,7 +565,8 @@ function buildMonthly(roleRows, productRows, today) {
     if (r.status === 'sold' && r._roleNet) push(r.sale_date, 'recovered', r._roleNet);
   });
   productRows.forEach((p) => {
-    if (!p.role_id) push(p.purchase_date, 'invest', num(p.purchase_price));
+    // 只有「自己背成本」的商品才算投入；挂在有成本的母角色下的不重复计
+    if (p._ownCost) push(p.purchase_date, 'invest', num(p.purchase_price));
     if (p.status === 'sold') push(p.sale_date, 'recovered', p._net);
   });
   return list;

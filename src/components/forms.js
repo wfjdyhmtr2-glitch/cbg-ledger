@@ -153,6 +153,24 @@ export const ProductForm = {
   },
   computed: {
     parent() { return (this.roles || []).find((r) => r.id === this.f.role_id) || null; },
+    /** 母角色的总成本 = 买入价 + 转服费 + 其他成本 */
+    parentCost() {
+      const p = this.parent;
+      if (!p) return 0;
+      return num(p.purchase_price) + num(p.transfer_fee) + num(p.other_cost);
+    },
+    /**
+     * 「买入价」这格的提示。母角色没记成本时必须提醒用户自己填 ——
+     * 否则引擎会兜底成 0，这件货的成本没了，整笔成交额会被算成利润。
+     */
+    buyHint() {
+      if (this.f.from_asset) return '固定资产流出的东西，建议填它的原购入成本，盈亏才准';
+      if (!this.parent) return '独立采购：这里就是这件货的成本';
+      if (!(this.parentCost > 0)) {
+        return '⚠️ 角色「' + this.parent.name + '」没记买入价 —— 这格务必填上这件货的成本，留空会被当成纯赚';
+      }
+      return '成本已算在角色「' + this.parent.name + '」头上，这里填 0 即可';
+    },
     /** 当前区服是否已填（没填就不做区服过滤，否则新增时啥都选不到） */
     zoneFiltered() { return !!String(this.f.zone || '').trim(); },
     roleOptions() {
@@ -234,7 +252,7 @@ export const ProductForm = {
         </p>
       </Field>
 
-      <Field label="买入价" :hint="parent ? '成本已算在角色「' + parent.name + '」头上，这里填 0 即可' : (f.from_asset ? '固定资产流出的东西，建议填它的原购入成本，盈亏才准' : '')">
+      <Field label="买入价" :hint="buyHint">
         <input class="input" type="number" step="0.01" v-model="f.purchase_price" placeholder="0.00" />
       </Field>
       <Field label="买入 / 入库日期" :hint="f.from_asset ? '固定资产流出不涉及新买入，日期不适用' : ''">

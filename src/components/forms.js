@@ -160,8 +160,9 @@ export const ProductForm = {
       return num(p.purchase_price) + num(p.transfer_fee) + num(p.other_cost);
     },
     /**
-     * 「买入价」这格的提示。母角色没记成本时必须提醒用户自己填 ——
-     * 否则引擎会兜底成 0，这件货的成本没了，整笔成交额会被算成利润。
+     * 「买入价」这格的提示。
+     * 口径：这件货的成本 = 母角色分摊过来的部分 + 这里填的钱，两者会相加。
+     * 所以成本全在角色上就填 0；如果这件货是角色之外另外花钱买的，就把它填上。
      */
     buyHint() {
       if (this.f.from_asset) return '固定资产流出的东西，建议填它的原购入成本，盈亏才准';
@@ -169,7 +170,7 @@ export const ProductForm = {
       if (!(this.parentCost > 0)) {
         return '⚠️ 角色「' + this.parent.name + '」没记买入价 —— 这格务必填上这件货的成本，留空会被当成纯赚';
       }
-      return '成本已算在角色「' + this.parent.name + '」头上，这里填 0 即可';
+      return '成本全算在角色「' + this.parent.name + '」上就填 0；这件货若在角色之外另花了钱，填这里（会与角色成本相加）';
     },
     /** 当前区服是否已填（没填就不做区服过滤，否则新增时啥都选不到） */
     zoneFiltered() { return !!String(this.f.zone || '').trim(); },

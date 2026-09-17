@@ -255,7 +255,7 @@ export const Roles = {
                   <table class="table compact sub-table" v-if="r._childCount">
                     <thead>
                       <tr>
-                        <th>商品</th><th>类别</th><th class="ta-r">分摊成本</th>
+                        <th>商品</th><th>类别</th><th class="ta-r" title="母角色分摊给它的成本 + 它自己填的买入价">计入成本</th>
                         <th class="ta-r">卖出价</th><th class="ta-r">到手</th>
                         <th class="ta-c">持有</th><th class="ta-c">状态</th>
                       </tr>

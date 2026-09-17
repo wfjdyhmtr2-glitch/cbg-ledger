@@ -246,7 +246,9 @@ export const Products = {
                 <Tag v-if="p.role_id" :text="'拆自 ' + p.roleName" tone="accent" />
                 <Tag v-else text="独立采购" tone="default" />
               </td>
-              <td class="ta-r num">{{ money(p.purchase_price) }}</td>
+              <td class="ta-r num">
+                <span :title="p._attached ? '母角色分摊 ' + money(p._allocCost) + ' + 自己填的成本 ' + money(p.purchase_price) : ''">{{ money(p._unitCost) }}</span>
+              </td>
               <td class="ta-r num muted">{{ p.listed_price > 0 ? money(p.listed_price) : '—' }}</td>
               <td class="ta-r num">
                 <template v-if="p.status === 'sold'"><span class="info">{{ money(p._net) }}</span></template>

@@ -434,11 +434,11 @@ t('某个区没有在手角色时，候选为空（表单给出提示）', () =>
   eq(names.length, 0);
 });
 
-group('九、拆号商品的成本兜底（母角色没记成本时）');
+group('九、拆号商品的成本：角色买入价 + 商品自填买入价');
 
 /** 造一组：母角色成本 roleCost + 挂在它名下、自填 ownPrice、卖 salePrice 的商品 */
 function splitCase(roleCost, ownPrice, salePrice = 13800) {
-  const r = newRole({ name: '母角色', zone: 'Z1', purchase_price: roleCost, purchase_date: '2026-08-01', status: 'holding' });
+  const r = newRole({ name: '母角色', zone: 'Z1', purchase_price: roleCost, purchase_date: '2026-08-01', status: 'holding', is_shell: true });
   const p = newProduct({
     name: '商品', category: 'equipment', zone: 'Z1', role_id: r.id,
     purchase_price: ownPrice, purchase_date: '2026-08-01',
@@ -447,43 +447,55 @@ function splitCase(roleCost, ownPrice, salePrice = 13800) {
   return computeAll({ roles: [r], products: [p] });
 }
 
-t('母角色没记成本时，用商品自填的买入价兜底（不再把整笔成交额当利润）', () => {
-  const s = splitCase(0, 12000);
-  const p = s.productRows[0];
-  ok(p._ownCost, '母角色成本为 0，这件商品应当自己背成本');
-  eq(p._cost, 12000);
-  eq(p._profit, 1110);            // 13110 净到手 − 12000
-  eq(p._realized, 1110);
-  eq(s.totals.invest, 12000);     // 兜底成本也要计入总投入
-  eq(s.totals.realizedProfit, 1110);
-  eq(s.totals.fallbackInvest, 12000);
+t('口径：总成本 = 角色买入价 + 商品自填买入价（两者都算）', () => {
+  const s = splitCase(5000, 3000);
+  eq(s.totals.roleInvest, 5000);
+  eq(s.totals.productOwnInvest, 3000);
+  eq(s.totals.invest, 8000, '角色 5000 + 商品 3000');
 });
 
-t('母角色有成本时不受影响，走分摊、不重复计', () => {
+t('实际盈亏 = 售出净到手 − 商品成本价 − 角色买入价（硕哥报的那个口径）', () => {
+  const s = splitCase(5000, 3000);
+  const net = s.productRows[0]._net; // 13800 扣信息费 = 13110
+  eq(s.productRows[0]._net, 13110);
+  // 区服维度就是硕哥看的那张卡
+  const z = s.zoneRows[0];
+  eq(z.invest, 8000);
+  eq(z.realized, round2(net - 3000 - 5000), 0.5); // 分摊权重带来 0.36 的零头
+  eq(s.totals.realizedProfit, round2(net - 3000 - 5000), 0.5);
+});
+
+t('商品自己填 0 时（成本全记在角色上）口径与以前完全一致', () => {
   const s = splitCase(12000, 0);
-  const p = s.productRows[0];
-  ok(!p._ownCost, '母角色有成本，商品不该自己背成本');
-  eq(s.totals.fallbackInvest, 0);
+  eq(s.totals.productOwnInvest, 0);
   eq(s.totals.invest, 12000, '投入只算角色那一次');
-  // 与改造前的口径完全一致（估算法：分摊额 = 角色成本 × 成交价权重 / 总权重）
-  eq(s.totals.realizedProfit, 6691.4);
+  eq(s.totals.realizedProfit, 6691.4, '与改造前的分摊结果一致');
 });
 
-t('母角色有成本 + 商品也填了价：仍以分摊为准，避免同一笔钱算两次', () => {
-  const s = splitCase(12000, 12000);
-  eq(s.totals.fallbackInvest, 0);
-  eq(s.totals.invest, 12000, '不能把角色的 12000 和商品的 12000 叠加成 24000');
-  eq(s.totals.realizedProfit, 6691.4, '口径与母角色有成本时保持一致');
+t('母角色没记成本时，商品自填的买入价仍然生效（不再把整笔成交额当利润）', () => {
+  const s = splitCase(0, 12000);
+  eq(s.totals.invest, 12000);
+  eq(s.totals.realizedProfit, 1110); // 13110 − 12000
+  ok(s.totals.realizedProfit < 12000, '不能把 13110 整笔当成利润');
 });
 
-t('兜底后账目守恒：已售资产成本 + 实际盈亏 = 已回款', () => {
-  [splitCase(0, 12000), splitCase(12000, 0), splitCase(12000, 12000), splitCase(0, 5000, 6000)].forEach((s) => {
+t('母子都没成本时无法凭空造成本，保持原样', () => {
+  const s = splitCase(0, 0);
+  eq(s.totals.invest, 0);
+  eq(s.totals.realizedProfit, 13110);
+});
+
+t('账目守恒：已售资产成本 + 实际盈亏 = 已回款（各种组合）', () => {
+  [[5000, 3000], [12000, 0], [0, 12000], [5000, 0], [0, 0], [8000, 4500, 9000]].forEach((args) => {
+    const s = splitCase(...args);
     eq(round2(s.totals.soldCost + s.totals.realizedProfit), s.totals.recovered, 0.02);
+    eq(s.totals.soldCost + s.totals.unsoldCost, s.totals.invest, 0.02);
+    eq(round2(s.totals.totalProfit), round2(s.totals.recovered + s.totals.onHand - s.totals.invest), 0.02);
   });
 });
 
-t('兜底后区服分项加总仍等于全站', () => {
-  const s = splitCase(0, 12000);
+t('区服分项加总仍等于全站（含商品自填成本）', () => {
+  const s = splitCase(5000, 3000);
   const sum = (f) => round2(s.zoneRows.reduce((a, z) => a + f(z), 0));
   eq(sum((z) => z.invest), s.totals.invest, 0.02);
   eq(sum((z) => z.soldCost), s.totals.soldCost, 0.02);
@@ -491,7 +503,7 @@ t('兜底后区服分项加总仍等于全站', () => {
   eq(sum((z) => z.locked), s.totals.onHandInvest, 0.02);
 });
 
-t('母角色被删掉（role_id 悬空）时同样兜底，不会算成纯赚', () => {
+t('母角色被删掉（role_id 悬空）时，商品自填成本照样算', () => {
   const p = newProduct({
     name: '孤儿商品', category: 'equipment', zone: 'Z1', role_id: '不存在的角色',
     purchase_price: 12000, purchase_date: '2026-08-01',
@@ -502,10 +514,42 @@ t('母角色被删掉（role_id 悬空）时同样兜底，不会算成纯赚', 
   eq(s.totals.realizedProfit, 1110);
 });
 
-t('母子都没成本时无法兜底，保持 0（不凭空造成本）', () => {
-  const s = splitCase(0, 0);
-  eq(s.totals.invest, 0);
-  eq(s.totals.realizedProfit, 13110);
+t('演示数据的汇总口径不受影响（演示的拆号商品成本都是 0）', () => {
+  const s = computeAll(demoData());
+  eq(s.totals.invest, round2(s.totals.roleInvest + s.totals.productOwnInvest));
+  eq(s.totals.invest, 36800);
+});
+
+t('角色行与区服行口径一致：角色的盈亏同样扣掉拆出商品自填的成本', () => {
+  const s = splitCase(5000, 3000);
+  const role = s.roleRows[0];
+  const z = s.zoneRows[0];
+  eq(role._roleCost, 5000, '号本身买入价');
+  eq(role._childOwnCost, 3000, '拆出商品另花的钱');
+  eq(role._cost, 8000, '这一票的总成本 = 角色 + 商品');
+  eq(role._realized, z.realized, 0.5);
+  eq(role._totalProfit, z.profit, 0.02);
+  eq(s.totals.realizedProfit, z.realized, 0.02);
+});
+
+t('角色被删时，它名下的商品成本既不会漏也不会重复计', () => {
+  const r = newRole({ name: '待删角色', zone: 'Z1', purchase_price: 4000, purchase_date: '2026-08-01', status: 'holding', is_shell: true });
+  const p = newProduct({
+    name: '它的商品', category: 'equipment', zone: 'Z1', role_id: r.id,
+    purchase_price: 2000, purchase_date: '2026-08-01',
+    status: 'sold', sale_price: 9000, sale_date: '2026-09-01',
+  });
+  const withRole = computeAll({ roles: [r], products: [p] });
+  const orphaned = computeAll({ roles: [], products: [p] }); // 模拟角色被删
+
+  // 角色没了：商品那 2000 由「无主商品」这条路径收进来，正好一次
+  eq(orphaned.totals.invest, 2000);
+  eq(orphaned.totals.soldCost, 2000);
+
+  // 角色还在：商品那 2000 收在角色行里（分摊 + 自付），汇总不再重复加一遍
+  eq(round2(withRole.roleRows[0]._soldCost - withRole.productRows[0]._allocCost), 2000);
+  eq(withRole.totals.soldCost, withRole.roleRows[0]._soldCost, 0.02);
+  eq(withRole.totals.invest, 6000, '角色 4000 + 商品 2000');
 });
 
 t('金额字段不会出现 NaN', () => {

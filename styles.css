@@ -749,6 +749,16 @@ tr.expanded > td { background: var(--card-2) !important; }
 }
 
 .zone-input { position: relative; }
+.zone-del {
+  margin-left: auto; flex-shrink: 0;
+  width: 18px; height: 18px; line-height: 16px;
+  border: none; border-radius: 50%;
+  background: transparent; color: var(--text-3);
+  font-size: 13px; cursor: pointer; text-align: center;
+  transition: background .15s, color .15s;
+}
+.zone-del:hover { background: color-mix(in srgb, var(--danger, #e05252) 25%, transparent); color: #fff; }
+
 .zone-pop {
   position: absolute; left: 0; right: 0; top: calc(100% + 4px);
   z-index: 60;

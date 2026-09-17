@@ -11,7 +11,7 @@
  * 匹配规则：包含即命中，前缀命中的排前面；键盘 ↑↓ 选择、回车确认、Esc 关闭。
  */
 
-import { state } from '../core/store.js';
+import { state, notify } from '../core/store.js';
 import { collectZoneNames } from '../core/model.js';
 import { BUILTIN_ZONES, BUILTIN_ZONE_REGION } from '../core/zones-data.js';
 
@@ -40,12 +40,12 @@ export const ZoneInput = {
   },
   emits: ['update:modelValue'],
   data() {
-    return { text: this.modelValue || '', open: false, active: -1 };
+    return { text: this.modelValue || '', open: false, active: -1, customList: loadCustom() };
   },
   computed: {
     pool() {
       const used = collectZoneNames(state.roles, state.products, state.chars);
-      return [...new Set([...used, ...loadCustom(), ...BUILTIN_ZONES])];
+      return [...new Set([...used, ...this.customList, ...BUILTIN_ZONES])];
     },
     matches() {
       const q = this.text.trim();
@@ -67,6 +67,19 @@ export const ZoneInput = {
   },
   methods: {
     regionOf(z) { return BUILTIN_ZONE_REGION[z] || ''; },
+    isCustom(z) { return !BUILTIN_ZONES.includes(z); },
+    /** 删除「我的区服」：清记忆；若业务数据里还有引用，提示去数据里改 */
+    removeCustom(z) {
+      this.customList = this.customList.filter((x) => x !== z);
+      try { localStorage.setItem(CUSTOM_KEY, JSON.stringify(this.customList)); } catch { /* ignore */ }
+      if (this.active >= 0) this.active = -1;
+      const used = collectZoneNames(state.roles, state.products, state.chars);
+      if (used.includes(z)) {
+        notify(`「${z}」的输入记忆已清除；它还被数据引用着，要彻底消失请改对应角色/商品的区服`);
+      } else {
+        notify(`已删除「${z}」`);
+      }
+    },
     onInput(e) {
       this.text = e.target.value;
       this.open = true;
@@ -123,7 +136,10 @@ export const ZoneInput = {
         @mouseenter="active = i">
         <span class="zone-name">{{ z }}</span>
         <span class="zone-region" v-if="regionOf(z)">{{ regionOf(z) }}</span>
-        <span class="zone-region mine" v-else>我的区服</span>
+        <template v-else>
+          <span class="zone-region mine">我的区服</span>
+          <button class="zone-del" title="删除这条记忆" @mousedown.prevent.stop="removeCustom(z)">×</button>
+        </template>
       </div>
     </div>
   </div>`,

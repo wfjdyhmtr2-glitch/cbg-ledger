@@ -29,7 +29,16 @@ export const CATEGORIES = [
   { id: 'other',       name: '其他',       feeType: 'item',     icon: '📦' },
 ];
 
-export const CATEGORY_MAP = Object.fromEntries(CATEGORIES.map((c) => [c.id, c]));
+/**
+ * 「角色」不是商品的分类（新增商品时选不到它），但固定资产里把自玩号卖掉时，
+ * 会以 role 为类别落一条流出记录，所以展示用的映射表要认得它。
+ * 费率那边 fee.js 本来就把 'role' 当一等类型处理（5%，保底 60，封顶 1000）。
+ */
+export const ROLE_CATEGORY = { id: 'role', name: '角色', feeType: 'role', icon: '🎭' };
+
+export const CATEGORY_MAP = Object.fromEntries(
+  [...CATEGORIES, ROLE_CATEGORY].map((c) => [c.id, c])
+);
 
 /**
  * 二级分类 —— 只有一级分类在下面列出的才有；非必填，

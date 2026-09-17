@@ -6,6 +6,6 @@
   "description": "纯静态前端，不需要 npm install。此文件存在的唯一目的是让 node 能直接以 ESM 方式加载 src/ 下的模块，便于跑自测脚本（npm test）。",
   "scripts": {
     "serve": "python3 -m http.server 8765",
-    "test": "node test/verify.js && node test/imports.js && node test/tpl-check.mjs"
+    "test": "node test/verify.js && node test/assets-sell.mjs && node test/imports.js && node test/tpl-check.mjs"
   }
 }

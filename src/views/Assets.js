@@ -9,7 +9,7 @@
  */
 
 import {
-  state, saveAsset, deleteAsset, saveChar, deleteCharKeepAssets, notify,
+  state, saveAsset, deleteAsset, saveChar, deleteCharKeepAssets, notify, sellFixedAsset,
 } from '../core/store.js';
 import { newAsset, newChar, normalizeZone, CATEGORIES, CATEGORY_MAP, assetLockInfo } from '../core/model.js';
 import { money, dateText } from '../core/format.js';
@@ -19,6 +19,7 @@ export const Assets = {
   data() {
     return {
       editing: null,       // { type: 'asset'|'char', model }
+      selling: null,       // { source, kind: 'char'|'asset' } —— 售出登记
       confirmDelChar: null,
       confirmDelAsset: null,
       busy: false,
@@ -117,6 +118,18 @@ export const Assets = {
     openNewChar() { this.editing = { type: 'char', isNew: true, model: newChar() }; },
     openEditChar(c) { this.editing = { type: 'char', model: c }; },
 
+    /** 卖一件号内物品 */
+    openSellAsset(a) { this.selling = { source: a, kind: 'asset' }; },
+    /** 卖一个自玩号（含号里还没卖掉的东西会变未归号） */
+    openSellChar(c) { this.selling = { source: c, kind: 'char' }; },
+
+    async onSell(payload) {
+      this.busy = true;
+      const ok = await sellFixedAsset(this.selling.source, this.selling.kind, payload);
+      this.busy = false;
+      if (ok) this.selling = null;
+    },
+
     async onSave(payload) {
       const isChar = this.editing.type === 'char';
       const ok = isChar ? await saveChar(payload) : await saveAsset(payload);
@@ -149,7 +162,8 @@ export const Assets = {
         <h2>固定资产</h2>
         <p class="page-sub">
           自己常玩的号里的家当 —— 按区、按号归置。
-          <b>完全独立于倒卖核算</b>：不计入投入、回款和盈亏，不出现在价值计算和分析页
+          <b>不计入倒卖核算</b>：不影响投入、回款和盈亏；
+          想卖的号或物品点那一行的「售出」，填上售出价格就会转到「分析 → 固定资产流出」出账
         </p>
       </div>
       <div class="action-row" style="margin: 0">
@@ -173,7 +187,7 @@ export const Assets = {
         <StatCard label="号内物品" :value="totals.assetCount + ' 件'"
           sub="只记购入成本，不估值、不参与倒卖" />
         <StatCard label="与倒卖的关系" value="相互独立" tone="neutral"
-          sub="这里的钱不影响任何盈亏报表，只在这一页可见" />
+          sub="不影响倒卖盈亏；售出的会在分析页「固定资产流出」单独立账" />
       </section>
 
       <!-- 区 → 号 → 物品 -->
@@ -203,6 +217,8 @@ export const Assets = {
               <span class="muted small">物品 {{ c.items.length }} 件 · {{ money(c.itemCost) }}</span>
               <b class="accent">小计 {{ money(round2(num(c.purchase_price) + c.itemCost)) }}</b>
             </div>
+            <button class="btn tiny info" v-if="!c.isVirtual" @click="openSellChar(c)"
+              title="卖出这个自玩号，转入分析页的固定资产流出">售出</button>
           </div>
 
           <table class="table compact sub-table" v-if="c.items.length">
@@ -232,6 +248,8 @@ export const Assets = {
                 <td class="muted small">{{ a.note || '—' }}</td>
                 <td class="ta-r">
                   <div class="row-actions" v-if="!c.isVirtual">
+                    <button class="btn tiny info" @click="openSellAsset(a)"
+                      title="卖出这件物品，转入分析页的固定资产流出">售出</button>
                     <button class="btn tiny" @click="openEditAsset(a)">编辑</button>
                     <button class="btn tiny danger" @click="confirmDelAsset = a">删</button>
                   </div>
@@ -266,6 +284,9 @@ export const Assets = {
 
     <AssetForm v-if="editing && editing.type === 'asset'" :model="editing.model" :is-new="editing.isNew"
       @close="editing = null" @save="onSave" />
+
+    <AssetSellForm v-if="selling" :source="selling.source" :kind="selling.kind"
+      @close="selling = null" @save="onSell" />
 
     <Modal v-if="confirmDelChar" title="删除自玩号" width="460px" @close="confirmDelChar = null">
       <p class="confirm-text">

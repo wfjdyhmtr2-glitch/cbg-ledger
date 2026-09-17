@@ -20,7 +20,7 @@ import {
 import { Donut, MonthlyBars, AgingBars, MiniBar } from './components/charts.js';
 import { ZoneInput } from './components/ZoneInput.js';
 // 表单
-import { RoleForm, ProductForm, SellForm, AssetForm, CharForm } from './components/forms.js';
+import { RoleForm, ProductForm, SellForm, AssetForm, CharForm, AssetSellForm } from './components/forms.js';
 // 页面
 import { Login } from './views/Login.js';
 import { Dashboard } from './views/Dashboard.js';
@@ -143,7 +143,7 @@ const COMPONENTS = {
   Modal, Tag, Gap, StatCard, RecoverBar, Empty, Field, Segmented, Pnl, Verdict,
   InfoDot, NavLink, Expander, ActionRow,
   Donut, MonthlyBars, AgingBars, MiniBar, ZoneInput,
-  RoleForm, ProductForm, SellForm, AssetForm, CharForm,  Login,
+  RoleForm, ProductForm, SellForm, AssetForm, CharForm, AssetSellForm,  Login,
 };
 Object.entries(COMPONENTS).forEach(([name, comp]) => app.component(name, comp));
 

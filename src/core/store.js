@@ -17,7 +17,7 @@ import {
   authState, clearAuthMessages,
 } from './auth.js';
 import { computeAll } from './compute.js';
-import { newRole, newProduct, newAsset, newChar, demoData, uid, collectZoneNames } from './model.js';
+import { newRole, newProduct, newAsset, newChar, demoData, uid, collectZoneNames, num, todayStr } from './model.js';
 
 const CFG_KEY = 'mhxy_cbg_cfg';
 
@@ -366,6 +366,54 @@ export async function unsellProduct(product) {
 export async function toggleListed(item) {
   const table = state.products.some((p) => p.id === item.id) ? 'products' : 'roles';
   return persist(table, { ...item, listed: !item.listed });
+}
+
+/**
+ * 固定资产售出 —— 一步把「在手资产」变成「流出记录」：
+ *
+ *   ① 生成一条标了 from_asset 的已售商品，把购入成本、售出价、到手价、成交日期都带上；
+ *      分析页的「固定资产流出」就是靠这批记录出账的（实际盈亏 = 到手 − 购入成本）。
+ *   ② 把原条目从固定资产里移除 —— 东西已经变现了，不该再算「还在手上」。
+ *
+ * 自玩号卖出时按「角色」类别计费（5%、保底 60、封顶 1000），号里的物品自动变未归号。
+ *
+ * @param {object} source 被卖的固定资产条目（char 或 asset）
+ * @param {'char'|'asset'} kind
+ * @param {{sale_price:number|string, sale_net:number|string|null, sale_date:string, sold_zone:string}} payload
+ */
+export async function sellFixedAsset(source, kind, payload) {
+  const isChar = kind === 'char';
+  const cost = isChar ? num(source.purchase_price) : num(source.cost);
+  const name = String(source.name || '').trim() || (isChar ? '自玩号' : '固定资产');
+  const saleNet =
+    payload.sale_net === '' || payload.sale_net == null ? null : num(payload.sale_net);
+
+  const record = newProduct({
+    from_asset: true,
+    zone: String(source.zone || '').trim(),
+    name,
+    category: isChar ? 'role' : (source.category || 'other'),
+    sub_category: isChar ? '' : (source.sub_category || ''),
+    purchase_price: cost,
+    purchase_date: source.purchase_date || '',
+    status: 'sold',
+    listed: true,
+    listed_price: 0,
+    sale_price: num(payload.sale_price),
+    sale_net: saleNet,
+    sale_date: payload.sale_date || todayStr(),
+    sold_zone: String(payload.sold_zone || source.zone || '').trim(),
+    note: `${isChar ? '自玩号售出' : '固定资产流出'}：购入成本 ${cost}${source.note ? ' · ' + source.note : ''}`,
+  });
+
+  const ok = await saveProduct(record);
+  if (!ok) return false;
+
+  if (isChar) await deleteCharKeepAssets(source.id);
+  else await deleteAsset(source.id);
+
+  notify(`「${name}」已售出，转入分析页的固定资产流出`, 'ok');
+  return true;
 }
 
 // ---------------------------------------------------------------- 备份

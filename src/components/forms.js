@@ -6,7 +6,7 @@
  * 列表由 collectZoneNames 自动汇总，所以你录到哪个区，哪个区就自动出现。
  */
 
-import { newRole, newProduct, newAsset, newChar, plain, todayStr, daysBetween, CATEGORIES, SCHOOLS, num, collectZoneNames, assetLockInfo, ASSET_LOCK_DAYS, subOptionsOf, normalizeZone, roleOptionsForZone } from '../core/model.js';
+import { newRole, newProduct, newAsset, newChar, plain, todayStr, daysBetween, CATEGORIES, SCHOOLS, num, round2, collectZoneNames, assetLockInfo, ASSET_LOCK_DAYS, subOptionsOf, normalizeZone, roleOptionsForZone } from '../core/model.js';
 import { state, notify } from '../core/store.js';
 import { calcFee, netFromGross, feeRuleText } from '../core/fee.js';
 import { money } from '../core/format.js';
@@ -553,6 +553,116 @@ export const CharForm = {
     <template #footer>
       <button class="btn" @click="close">取消</button>
       <button class="btn primary" @click="submit">保存</button>
+    </template>
+  </Modal>`,
+};
+
+/**
+ * 固定资产售出 —— 自玩号 / 号内物品都能卖。
+ *
+ * 只填一个售出价格，到手价按藏宝阁费率自动算（可手填覆盖），
+ * 底下实时预览这一笔的实际盈亏；确认后这条资产转成「固定资产流出」记录。
+ */
+export const AssetSellForm = {
+  props: { source: Object, kind: String }, // kind: 'char' | 'asset'
+  emits: ['close', 'save'],
+  data() {
+    return {
+      f: { sale_price: '', sale_net: '', sale_date: todayStr(), sold_zone: '' },
+      err: '',
+    };
+  },
+  computed: {
+    isChar() { return this.kind === 'char'; },
+    /** 自玩号按「角色」费率，物品按自己的类别 */
+    category() { return this.isChar ? 'role' : (this.source.category || 'other'); },
+    /** 购入成本：号看 purchase_price，物品看 cost */
+    cost() { return this.isChar ? num(this.source.purchase_price) : num(this.source.cost); },
+    autoNet() { return netFromGross(this.category, this.f.sale_price); },
+    fee() { return calcFee(this.category, this.f.sale_price); },
+    finalNet() {
+      return this.f.sale_net === '' || this.f.sale_net == null ? this.autoNet : num(this.f.sale_net);
+    },
+    profit() { return round2(this.finalNet - this.cost); },
+    ruleText() { return feeRuleText(this.category); },
+    buyZoneName() { return String(this.source.zone || '').trim() || '原区'; },
+    /** 号里还有东西时提醒一下 —— 号卖掉后它们会变成未归号 */
+    childItems() { return this.isChar ? num(this.source.items && this.source.items.length) : 0; },
+  },
+  methods: {
+    num, money, round2,
+    close() { this.$emit('close'); },
+    submit() {
+      if (!(num(this.f.sale_price) > 0) && (this.f.sale_net === '' || this.f.sale_net == null)) {
+        this.err = '至少填一个：售出价格 或 实际到手金额';
+        return;
+      }
+      this.$emit('save', { ...this.f });
+    },
+  },
+  template: `
+  <Modal title="固定资产售出" width="560px"
+    :sub="(isChar ? '自玩号' : '号内物品') + '：' + source.name" @close="close">
+
+    <div class="sell-summary">
+      <div class="sell-line">
+        <span>购入成本</span>
+        <b>{{ money(cost) }}</b>
+      </div>
+      <div class="sell-line">
+        <span>费率</span>
+        <span class="muted small">{{ ruleText }}</span>
+      </div>
+    </div>
+
+    <div class="form-grid">
+      <Field label="售出价格" hint="你想卖多少（挂牌价）">
+        <input class="input" type="number" step="0.01" v-model="f.sale_price" placeholder="0.00" />
+      </Field>
+      <Field label="成交日期">
+        <input class="input" type="date" v-model="f.sale_date" />
+      </Field>
+      <Field label="实际到手" hint="留空 = 按规则自动扣费；实际有出入就以你到账的数为准">
+        <input class="input" type="number" step="0.01" v-model="f.sale_net" placeholder="自动计算" />
+      </Field>
+      <Field label="成交时所在区服" hint="转过服的才需要改；留空 = 和原来同区">
+        <ZoneInput v-model="f.sold_zone" :placeholder="buyZoneName" />
+      </Field>
+    </div>
+
+    <div class="fee-box" v-if="num(f.sale_price) > 0">
+      <div class="fee-line">
+        <span class="muted">藏宝阁规则</span>
+        <span>{{ ruleText }}</span>
+      </div>
+      <div class="fee-calc">
+        <span>售出 ¥{{ num(f.sale_price).toFixed(2) }}</span>
+        <span class="fee-arrow">−</span>
+        <span class="fee-amount">信息费 ¥{{ fee.toFixed(2) }}</span>
+        <span class="fee-arrow">=</span>
+        <span class="fee-net">到手 ¥{{ finalNet.toFixed(2) }}</span>
+      </div>
+      <div class="fee-profit">
+        这笔的实际盈亏：
+        <span :class="'pnl-' + pnlTone(profit)">{{ money(profit, { sign: true }) }}</span>
+        <span class="muted small">（到手 − 购入成本）</span>
+      </div>
+    </div>
+
+    <p class="confirm-text" style="margin-top: 14px">
+      ⚠️ 确认后这条资产会<b>从固定资产移出</b>，转入「分析 → 固定资产流出」里出账，
+      那边的<b>实际盈亏</b>和<b>还在手上</b>会一起更新。
+      <template v-if="childItems">
+        <br /><br />这个号里还有 <b>{{ childItems }}</b> 件物品，号卖掉后它们会变成「未归号」，不会被删掉。
+      </template>
+      <br /><br />这一步不可撤销（想还原就手动在固定资产里重新登记）。
+    </p>
+
+    <p class="form-err" v-if="err">{{ err }}</p>
+
+    <template #footer>
+      <button class="btn" @click="close">取消</button>
+      <button class="btn primary" @click="submit">确认售出</button>
     </template>
   </Modal>`,
 };

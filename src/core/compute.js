@@ -300,6 +300,11 @@ export function computeAll(state, opts = {}) {
   const totalProfit = round2(totalRecovered + totalOnHand - totalInvest);
   const unsoldCost = round2(totalInvest - soldCostTotal);
 
+  // ---- 资金占用（在手）/ 全部区服投入：两者是同一个口径，不重复展示
+  //      = 角色买入价 + 商品成本 − 已回款金额
+  //      等价于「还没回本的成本」= 总投入 − 已售资产成本。
+  const onHandInvest = round2(totalInvest - soldCostTotal);
+
   // ---- 区服维度
   // 区服不是手工维护的清单，而是从角色/商品里「长出来」的：
   // 数据里出现过的区服名（含转服后的成交区）自动汇总，去重后就是这个列表。
@@ -362,7 +367,8 @@ export function computeAll(state, opts = {}) {
         soldCost,
         realized: round2(recovered - soldCost),
         profit: round2(recovered + onHand - invest),
-        locked: onHand,
+        // 与全局同一口径：角色买入价 + 商品成本 − 已回款金额（= 还没回本的成本）
+        locked: round2(invest - soldCost),
         transferredIn,
         transferredOut,
         roleCount: zRoles.length,
@@ -470,6 +476,8 @@ export function computeAll(state, opts = {}) {
       roleRecovered,
       productRecovered,
       onHand: totalOnHand,
+      // 全部区服投入 = 资金占用（在手）= 角色买入价 + 商品成本 − 已回款金额
+      onHandInvest,
       roleOnHand,
       productOnHand,
       estTotal: holdingItems.reduce((s2, i) => s2 + num(i.listedPrice), 0),

@@ -68,13 +68,12 @@ export const Zones = {
 
       <div class="zone-summary">
         <div class="zs-item">
-          <span class="zs-label">全部区服投入</span>
-          <span class="zs-value accent">{{ money(grand.invest) }}</span>
-        </div>
-        <div class="zs-item">
           <span class="zs-label">资金占用（在手）</span>
-          <span class="zs-value">{{ money(grand.onHand) }}</span>
-          <span class="zs-note">{{ pct(grand.invest ? grand.onHand / grand.invest : 0) }} 的盘子还压着</span>
+          <span class="zs-value accent">{{ money(grand.onHandInvest) }}</span>
+          <span class="zs-note">
+            还压在货上的本金（占盘子 {{ pct(grand.invest ? grand.onHandInvest / grand.invest : 0) }}）
+            · 全部区服投入 {{ money(grand.invest) }} 中已回款 {{ money(grand.recovered) }}
+          </span>
         </div>
         <div class="zs-item">
           <span class="zs-label">实际盈亏（已落袋）</span>

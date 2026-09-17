@@ -346,6 +346,30 @@ t('演示数据：区服分项加总等于全站总额', () => {
   eq(sum((z) => z.invest), s.totals.invest, 0.02);
   eq(sum((z) => z.recovered), s.totals.recovered, 0.02);
   eq(sum((z) => z.onHand), s.totals.onHand, 0.02);
+  // 资金占用（在手）同口径：区服分项加总 = 全站
+  eq(sum((z) => z.locked), s.totals.onHandInvest, 0.02);
+});
+
+t('「全部区服投入」与「资金占用（在手）」是同一口径', () => {
+  const s = computeAll(demoData());
+  // 口径：总投入 − 已售资产成本 = 角色买入价 + 商品成本 −（已卖出那部分的成本）
+  eq(s.totals.onHandInvest, round2(s.totals.invest - s.totals.soldCost), 0.02);
+  // 恒等式：已售资产成本 = 已回款 − 已实现盈亏  →  占用 = 投入 − 回款 + 实际盈亏
+  eq(s.totals.soldCost, round2(s.totals.recovered - s.totals.realizedProfit), 0.02);
+  eq(
+    s.totals.onHandInvest,
+    round2(s.totals.invest - s.totals.recovered + s.totals.realizedProfit),
+    0.02
+  );
+  // 守恒：占用 + 已售资产成本 = 总投入
+  eq(round2(s.totals.onHandInvest + s.totals.soldCost), s.totals.invest, 0.02);
+  // 不再拿「盘子总额」冒充资金占用
+  ok(
+    Math.abs(s.totals.onHandInvest - s.totals.invest) > 0.02,
+    '资金占用应与总投入区分开，不能直接等于总投入'
+  );
+  // 每个区的占用同样口径，且分项加总等于全站
+  s.zoneRows.forEach((z) => eq(z.locked, round2(z.invest - z.soldCost), 0.02));
 });
 
 t('演示数据：账龄分桶覆盖全部在手资产', () => {

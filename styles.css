@@ -408,7 +408,10 @@ textarea.input { resize: vertical; line-height: 1.5; }
 }
 .table td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
 .table tbody tr:last-child td { border-bottom: none; }
-.table.hoverable tbody tr:hover > td { background: var(--card-2); }
+.table.hoverable tbody tr:hover > td { background: var(--card-3); }
+/* 悬停时左侧点一道金线 —— 光靠底色在深色主题下不够醒目，容易看错行 */
+.table.hoverable tbody tr > td:first-child { transition: box-shadow .12s ease; }
+.table.hoverable tbody tr:hover > td:first-child { box-shadow: inset 2px 0 0 var(--accent); }
 .table.compact th, .table.compact td { padding: 7px 10px; font-size: 12.5px; }
 
 .cell-main { color: var(--text); font-weight: 500; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
@@ -834,15 +837,9 @@ input.dimmed { opacity: .45; background: var(--card-2, rgba(255,255,255,.04)); c
 .char-costs b { font-size: 15px; }
 .char-actions { display: flex; gap: 6px; justify-content: flex-end; }
 
-/* 已售出的号 / 物品：保留在列表里，但压暗、加左侧标记，一眼区分「还在手上」 */
-.char-card.sold {
-  border-color: var(--border);
-  background: transparent;
-  opacity: 0.72;
-}
-.char-card.sold .char-head { border-left: 2px solid var(--up); padding-left: 10px; }
-tr.row-sold > td { opacity: 0.72; }
-tr.row-sold { background: transparent; }
+/* 已售区：卖掉的号 / 物品集中一处，视觉上压一档，和「还在手上」明确分开 */
+.sold-card { border-style: dashed; }
+.sold-card .card-head h3 { color: var(--text-2); }
 
 /* ------------------------------------------------------------ 杂项 */
 

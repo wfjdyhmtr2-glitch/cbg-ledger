@@ -295,7 +295,8 @@ async function persist(table, row) {
     return true;
   } catch (e) {
     if (e.authExpired) { handleAuthExpired(); return false; }
-    notify(`保存失败：${e.message}`, 'error');
+    // 带 hint 的（比如缺字段 / 缺表 / 权限）把可操作的建议一并显示出来
+    notify(`保存失败：${e.message}${e.hint ? '　·　' + e.hint : ''}`, 'error');
     return false;
   } finally {
     state.syncing = false;

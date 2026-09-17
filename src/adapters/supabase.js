@@ -189,6 +189,10 @@ export function createSupabaseAdapter(url, key) {
       err.hint = '表不存在，请先在 Supabase SQL Editor 执行 supabase/schema.sql';
     } else if (res.status === 403) {
       err.hint = '没权限。多半是 RLS 策略没按 schema.sql 建好，或者 owner 字段没填上。';
+    } else if (res.status === 400 && /column|schema cache/i.test(detail)) {
+      err.hint =
+        '数据库缺字段。到 Supabase → SQL Editor 跑一遍 supabase/migration-fixed-asset-sold.sql' +
+        '（固定资产「已售」那 5 个字段：sold / sale_price / sale_net / sale_date / sold_zone）';
     }
     throw err;
   }

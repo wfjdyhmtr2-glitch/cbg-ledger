@@ -1,8 +1,10 @@
 /**
- * 固定资产售出流程自测：node test/assets-sell.mjs
+ * 固定资产售出自测（标记已售版）：node test/assets-sell.mjs
  *
- * 验证「卖出固定资产 → 生成流出记录 → 原条目移出固定资产」这条链，
- * 以及分析页「固定资产流出」依赖的两个数（实际盈亏 / 还在手上）算得对不对。
+ * 卖出的号/物品**保留在固定资产里**，只打 sold 标记：
+ *   - 不再算「还在手上」
+ *   - 但保留了售出价 / 到手 / 实际盈亏，能查能撤销
+ *   - 分析页「固定资产流出」直接读这批标记，不另外复制一份账
  *
  * store.js 依赖裸模块名 'vue'，浏览器靠 importmap、这里靠解析钩子补上。
  */
@@ -10,8 +12,8 @@
 import { register } from 'node:module';
 register('./vue-resolve-hooks.mjs', import.meta.url);
 
-const { state, sellFixedAsset } = await import('../src/core/store.js');
-const { computeAll } = await import('../src/core/compute.js');
+const { state, sellFixedAsset, unsellFixedAsset, fixedAssets } = await import('../src/core/store.js');
+const { computeAll, fixedAssetPnl } = await import('../src/core/compute.js');
 const { newChar, newAsset, round2 } = await import('../src/core/model.js');
 
 let pass = 0;
@@ -33,7 +35,7 @@ function ok(c, m) { if (!c) throw new Error(m || '断言失败'); }
 
 const Z = '沂水雪山';
 
-/** 把 store 重置成一份干净的内存数据（演示模式，不连库） */
+/** 重置成一份干净的内存数据（演示模式，不连库） */
 function seed(chars = [], assets = []) {
   state.demoMode = true;
   state.roles = [];
@@ -41,83 +43,84 @@ function seed(chars = [], assets = []) {
   state.chars = chars;
   state.assets = assets;
 }
+const fa = () => fixedAssets.value;
+const findAsset = (id) => state.assets.find((a) => a.id === id);
+const findChar = (id) => state.chars.find((c) => c.id === id);
 
-const fixedOnHand = () =>
-  round2(
-    state.chars.reduce((s, c) => s + Number(c.purchase_price || 0), 0) +
-    state.assets.reduce((s, a) => s + Number(a.cost || 0), 0)
-  );
+const char = newChar({ zone: Z, name: '主力号', purchase_price: 3000 });
+const sword = newAsset({ char_id: char.id, zone: Z, name: '160无级别剑', category: 'equipment', cost: 12000 });
+const ring = newAsset({ char_id: char.id, zone: Z, name: '140灵饰', category: 'accessory', cost: 2800 });
 
 console.log('一、卖一件号内物品');
 
-const char = newChar({ zone: Z, name: '主力号', purchase_price: 3000 });
-const sword = newAsset({ char_id: char.id, zone: Z, name: '150无级别剑', category: 'equipment', cost: 12000 });
-const ring = newAsset({ char_id: char.id, zone: Z, name: '140灵饰', category: 'accessory', cost: 2800 });
-
-await t('售出后：生成一条标了「固定资产流出」的已售商品', async () => {
+await t('售出只做标记：记录还在，不新建商品、不删除', async () => {
   seed([char], [sword, ring]);
-  const before = state.products.length;
+  const prodBefore = state.products.length;
   await sellFixedAsset(sword, 'asset', { sale_price: 13800, sale_net: '', sale_date: '2026-09-18', sold_zone: Z });
 
-  eq(state.products.length, before + 1);
-  const rec = state.products[state.products.length - 1];
-  ok(rec.from_asset === true, '要标 from_asset，分析页才认得');
-  eq(rec.status === 'sold' ? 1 : 0, 1);
-  eq(rec.purchase_price, 12000, '购入成本原样带过去');
-  eq(rec.sale_price, 13800);
-  eq(rec.sale_net, null, '没手填到手就该留空，交给费率规则算');
-  eq(rec.sale_date, '2026-09-18');
-  eq(rec.category, 'equipment', '物品用自己原本的类别计费');
-  eq(rec.zone, Z);
+  const a = findAsset(sword.id);
+  ok(a, '原物品必须还在固定资产里');
+  eq(a.sold, true);
+  eq(a.sale_price, 13800);
+  eq(a.sale_net, null, '没手填到手就留空，交给费率算');
+  eq(a.sale_date, '2026-09-18');
+  eq(a.sold_zone, Z);
+  eq(state.products.length, prodBefore, '不该再复制一份商品记录（同一笔账只存一处）');
+  eq(state.assets.length, 2);
 });
 
 await t('到手价按藏宝阁费率自动算：13800 → 扣 690 → 13110', async () => {
   seed([char], [sword]);
   await sellFixedAsset(sword, 'asset', { sale_price: 13800, sale_net: '', sale_date: '2026-09-18', sold_zone: Z });
-  const s = computeAll({ roles: state.roles, products: state.products, chars: state.chars, assets: state.assets });
-  const p = s.productRows.find((x) => x.from_asset);
-  eq(p._net, 13110, 0.005);
+  const pnl = fixedAssetPnl(findAsset(sword.id), 'asset');
+  eq(pnl.fee, 690, 0.005);
+  eq(pnl.net, 13110, 0.005);
 });
 
 await t('实际盈亏 = 到手 − 购入成本 = 1110', async () => {
   seed([char], [sword]);
   await sellFixedAsset(sword, 'asset', { sale_price: 13800, sale_net: '', sale_date: '2026-09-18', sold_zone: Z });
-  const s = computeAll({ roles: state.roles, products: state.products, chars: state.chars, assets: state.assets });
-  const p = s.productRows.find((x) => x.from_asset);
-  eq(p._profit, round2(p._net - 12000));
-  eq(p._profit, 1110, 0.005);
+  const pnl = fixedAssetPnl(findAsset(sword.id), 'asset');
+  eq(pnl.profit, 1110, 0.005);
+  eq(fa().soldProfit, 1110, 0.005);
 });
 
-await t('原物品从固定资产移出（还在手上少一件）', async () => {
+await t('已售的不再算「还在手上」，但成本仍留在记录里', async () => {
   seed([char], [sword, ring]);
-  eq(fixedOnHand(), 3000 + 12000 + 2800);
+  eq(fa().holdingCost, 3000 + 12000 + 2800);
   await sellFixedAsset(sword, 'asset', { sale_price: 13800, sale_net: '', sale_date: '2026-09-18', sold_zone: Z });
-  ok(!state.assets.some((a) => a.id === sword.id), '卖掉的那件不该还在固定资产里');
-  eq(state.assets.length, 1);
-  eq(fixedOnHand(), 3000 + 2800, '还在手上应扣掉卖掉的 12000');
-});
-
-await t('号不会被误删，剩下的物品仍挂着', async () => {
-  seed([char], [sword, ring]);
-  await sellFixedAsset(sword, 'asset', { sale_price: 13800, sale_net: '', sale_date: '2026-09-18', sold_zone: Z });
-  eq(state.chars.length, 1);
-  eq(state.assets[0].char_id, char.id);
+  eq(fa().holdingCost, 3000 + 2800, '还在手上应扣掉卖掉的 12000');
+  eq(fa().soldCost, 12000, '已售那批的购入成本要单独留着');
+  eq(fa().holding.length, 2);
+  eq(fa().sold.length, 1);
 });
 
 await t('手填实际到手时以手填为准', async () => {
   seed([char], [sword]);
   await sellFixedAsset(sword, 'asset', { sale_price: 13800, sale_net: 13500, sale_date: '2026-09-18', sold_zone: Z });
-  const s = computeAll({ roles: state.roles, products: state.products, chars: state.chars, assets: state.assets });
-  const p = s.productRows.find((x) => x.from_asset);
-  eq(p._net, 13500, 0.005);
-  eq(p._profit, 1500, 0.005);
+  const pnl = fixedAssetPnl(findAsset(sword.id), 'asset');
+  eq(pnl.net, 13500, 0.005);
+  eq(pnl.profit, 1500, 0.005);
 });
 
 await t('没填日期时默认记今天', async () => {
   seed([char], [sword]);
   await sellFixedAsset(sword, 'asset', { sale_price: 100, sale_net: '', sale_date: '', sold_zone: Z });
-  const rec = state.products[0];
-  ok(/^\d{4}-\d{2}-\d{2}$/.test(rec.sale_date), '应为 YYYY-MM-DD，实际 ' + rec.sale_date);
+  ok(/^\d{4}-\d{2}-\d{2}$/.test(findAsset(sword.id).sale_date), '应为 YYYY-MM-DD');
+});
+
+await t('可以撤销：清掉标记，重新算回还在手上', async () => {
+  seed([char], [sword, ring]);
+  await sellFixedAsset(sword, 'asset', { sale_price: 13800, sale_net: '', sale_date: '2026-09-18', sold_zone: Z });
+  eq(fa().holdingCost, 3000 + 2800);
+  await unsellFixedAsset(findAsset(sword.id), 'asset');
+  const a = findAsset(sword.id);
+  eq(a.sold, false);
+  eq(a.sale_price, 0);
+  eq(a.sale_net, null);
+  eq(a.sale_date, '');
+  eq(fa().holdingCost, 3000 + 12000 + 2800, '撤销后应回到全部在手上');
+  eq(fa().sold.length, 0);
 });
 
 console.log('\n二、卖一个自玩号');
@@ -128,69 +131,70 @@ const pet = newAsset({ char_id: bigChar.id, zone: Z, name: '须弥兽', category
 await t('号按「角色」费率计费（5%，保底 60）', async () => {
   seed([bigChar], [pet]);
   await sellFixedAsset(bigChar, 'char', { sale_price: 9000, sale_net: '', sale_date: '2026-09-18', sold_zone: Z });
-  const rec = state.products[0];
-  eq(rec.category, 'role', '角色的费率和物品不一样，必须用 role');
-  eq(rec.purchase_price, 8000, '号的购入成本取 purchase_price');
-  // 9000 × 5% = 450，高于 60 保底 → 到手 8550
-  const s = computeAll({ roles: state.roles, products: state.products, chars: state.chars, assets: state.assets });
-  const p = s.productRows.find((x) => x.from_asset);
-  eq(p._net, 8550, 0.005);
-  eq(p._profit, 550, 0.005);
+  const pnl = fixedAssetPnl(findChar(bigChar.id), 'char');
+  eq(pnl.category, 'role', '角色费率和物品不同，必须走 role');
+  eq(pnl.cost, 8000, '号的成本取 purchase_price');
+  // 9000 × 5% = 450（高于 60 保底）→ 到手 8550 → 盈亏 550
+  eq(pnl.net, 8550, 0.005);
+  eq(pnl.profit, 550, 0.005);
 });
 
-await t('号卖出后从固定资产移出，号里的物品变未归号（不被删）', async () => {
+await t('号卖出后，号里的物品不受影响，仍挂在它名下', async () => {
   seed([bigChar], [pet]);
   await sellFixedAsset(bigChar, 'char', { sale_price: 9000, sale_net: '', sale_date: '2026-09-18', sold_zone: Z });
-  eq(state.chars.length, 0, '号应该移出固定资产');
-  eq(state.assets.length, 1, '号里的物品不能被删');
-  eq(state.assets[0].char_id, null, '应变成未归号');
-  eq(fixedOnHand(), 5000, '还在手上只剩那件物品');
+  eq(state.chars.length, 1, '号要保留在固定资产里');
+  eq(findChar(bigChar.id).sold, true);
+  eq(state.assets.length, 1);
+  eq(findAsset(pet.id).char_id, bigChar.id, '物品不该变成未归号');
+  eq(fa().holdingCost, 5000, '还在手上只剩那件物品');
 });
 
-await t('号卖掉后，号的成本仍计入流出记录的购入成本（不会凭空消失）', async () => {
+await t('号卖掉后，号的成本仍计入流出总成本（不会凭空消失）', async () => {
   seed([bigChar], [pet]);
   await sellFixedAsset(bigChar, 'char', { sale_price: 9000, sale_net: '', sale_date: '2026-09-18', sold_zone: Z });
-  const rec = state.products[0];
-  eq(rec.purchase_price, 8000);
-  const outflowCost = round2(state.products.filter((p) => p.from_asset).reduce((s, p) => s + p.purchase_price, 0));
-  eq(outflowCost, 8000, '分析页的「流出总成本」应等于号当初的钱');
+  eq(fa().soldCost, 8000);
+  eq(fa().soldNet, 8550, 0.005);
+  eq(fa().soldProfit, 550, 0.005);
 });
 
-console.log('\n三、流出记录与在手的口径');
+console.log('\n三、流出与在手的口径');
 
 await t('卖两条后：流出总成本 / 已售回款 / 实际盈亏 三个数自洽', async () => {
   seed([char], [sword, ring]);
   await sellFixedAsset(sword, 'asset', { sale_price: 13800, sale_net: '', sale_date: '2026-09-18', sold_zone: Z });
   await sellFixedAsset(ring, 'asset', { sale_price: 3000, sale_net: '', sale_date: '2026-09-18', sold_zone: Z });
 
-  const s = computeAll({ roles: state.roles, products: state.products, chars: state.chars, assets: state.assets });
-  const sold = s.productRows.filter((p) => p.from_asset && p.status === 'sold');
-  const cost = round2(sold.reduce((a, p) => a + p.purchase_price, 0));
-  const net = round2(sold.reduce((a, p) => a + p._net, 0));
-  const profit = round2(sold.reduce((a, p) => a + p._profit, 0));
-
-  eq(cost, 12000 + 2800);
-  eq(net, round2(13110 + (3000 - 150)));
-  eq(profit, round2(net - cost));
-  eq(sold.length, 2);
+  eq(fa().soldCost, 12000 + 2800);
+  eq(fa().soldNet, round2(13110 + (3000 - 150)), 0.005);
+  eq(fa().soldProfit, round2(fa().soldNet - fa().soldCost), 0.005);
+  eq(fa().sold.length, 2);
 });
 
 await t('卖完之后「还在手上」只剩没卖的（号本身）', async () => {
   seed([char], [sword, ring]);
   await sellFixedAsset(sword, 'asset', { sale_price: 13800, sale_net: '', sale_date: '2026-09-18', sold_zone: Z });
   await sellFixedAsset(ring, 'asset', { sale_price: 3000, sale_net: '', sale_date: '2026-09-18', sold_zone: Z });
-  eq(fixedOnHand(), 3000, '两件物品都卖了，只剩号的 3000');
-  eq(state.assets.length, 0);
+  eq(fa().holdingCost, 3000, '两件物品都卖了，只剩号的 3000');
+  eq(fa().holding.length, 1);
+  eq(state.assets.length, 2, '记录都还在，只是标了已售');
 });
 
-await t('固定资产流出记录不参与倒卖核算（不会混进角色/商品投入）', async () => {
+await t('已售固定资产不混进倒卖核算（角色/商品那套账不受影响）', async () => {
   seed([char], [sword]);
   await sellFixedAsset(sword, 'asset', { sale_price: 13800, sale_net: '', sale_date: '2026-09-18', sold_zone: Z });
   const s = computeAll({ roles: state.roles, products: state.products, chars: state.chars, assets: state.assets });
-  // 流出商品是「独立采购」口径，会计入倒卖侧的独立投入 —— 这是既有设计，这里只锁住它不产生 NaN 与错乱
-  ok(Number.isFinite(s.totals.invest), '投入不能是 NaN');
-  ok(Number.isFinite(s.totals.realizedProfit), '实际盈亏不能是 NaN');
-  eq(s.totals.realizedProfit, 1110, 0.02);
+  eq(s.totals.invest, 0, '固定资产的钱不进倒卖投入');
+  eq(s.totals.recovered, 0, '固定资产的回款也不进倒卖回款');
+  eq(s.totals.realizedProfit, 0);
+});
+
+await t('没卖过的条目 pnl 全为 0，不会误报盈亏', async () => {
+  seed([char], [sword]);
+  const pnl = fixedAssetPnl(findAsset(sword.id), 'asset');
+  eq(pnl.cost, 12000);
+  eq(pnl.net, 0);
+  eq(pnl.profit, 0);
+  eq(pnl.fee, 0);
 });
 
 console.log('');

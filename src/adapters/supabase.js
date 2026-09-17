@@ -53,6 +53,11 @@ function toRow(table, row) {
       name: row.name || '',
       purchase_price: num(row.purchase_price),
       purchase_date: row.purchase_date || null,
+      sold: !!row.sold,
+      sale_price: num(row.sale_price),
+      sale_net: row.sale_net === '' || row.sale_net == null ? null : num(row.sale_net),
+      sale_date: row.sale_date || null,
+      sold_zone: row.sold_zone || '',
       note: row.note || '',
     };
   }
@@ -66,6 +71,11 @@ function toRow(table, row) {
       cost: num(row.cost),
       purchase_date: row.purchase_date || null,
       cross_server: row.cross_server === true,
+      sold: !!row.sold,
+      sale_price: num(row.sale_price),
+      sale_net: row.sale_net === '' || row.sale_net == null ? null : num(row.sale_net),
+      sale_date: row.sale_date || null,
+      sold_zone: row.sold_zone || '',
       note: row.note || '',
     };
   }
@@ -95,10 +105,21 @@ function toRow(table, row) {
 /** 把数据库行还原成前端对象（补默认值，避免 null 到处飞） */
 function fromRow(table, r) {
   const out = { ...r };
-  const pad = table === 'assets'
-    ? ['purchase_date']
-    : ['purchase_date', 'sale_date', 'zone', 'sold_zone'];
-  pad.forEach((k) => { if (out[k] == null) out[k] = ''; });
+  if (table === 'assets') {
+    if (out.purchase_date == null) out.purchase_date = '';
+    if (out.sale_date == null) out.sale_date = '';
+    if (out.sold == null) out.sold = false;
+    if (out.sold_zone == null) out.sold_zone = '';
+  } else if (table === 'chars') {
+    ['purchase_date', 'sale_date', 'zone', 'sold_zone'].forEach((k) => {
+      if (out[k] == null) out[k] = '';
+    });
+    if (out.sold == null) out.sold = false;
+  } else {
+    ['purchase_date', 'sale_date', 'zone', 'sold_zone'].forEach((k) => {
+      if (out[k] == null) out[k] = '';
+    });
+  }
   if (table === 'products' && out.role_id === undefined) out.role_id = null;
   return out;
 }

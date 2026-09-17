@@ -650,12 +650,12 @@ export const AssetSellForm = {
     </div>
 
     <p class="confirm-text" style="margin-top: 14px">
-      ⚠️ 确认后这条资产会<b>从固定资产移出</b>，转入「分析 → 固定资产流出」里出账，
-      那边的<b>实际盈亏</b>和<b>还在手上</b>会一起更新。
+      ℹ️ 确认后这条资产会<b>标记为已售</b>并保留在固定资产里 —— 不再算「还在手上」，
+      同时出现在「分析 → 固定资产流出」里出账，那边的<b>实际盈亏</b>和<b>还在手上</b>会一起更新。
       <template v-if="childItems">
-        <br /><br />这个号里还有 <b>{{ childItems }}</b> 件物品，号卖掉后它们会变成「未归号」，不会被删掉。
+        <br /><br />这个号里还有 <b>{{ childItems }}</b> 件物品，它们不受影响，仍挂在这个号名下。
       </template>
-      <br /><br />这一步不可撤销（想还原就手动在固定资产里重新登记）。
+      <br /><br />填错了随时在这一行点「撤销售出」还原。
     </p>
 
     <p class="form-err" v-if="err">{{ err }}</p>

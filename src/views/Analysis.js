@@ -3,9 +3,9 @@
  * 回答两个问题：钱是被哪一票赚走的 / 哪一票拖了后腿、压了多久
  */
 
-import { state, stats } from '../core/store.js';
+import { state, stats, fixedAssets } from '../core/store.js';
 import { money, pct, daysText, agingTone, pnlTone, dateText } from '../core/format.js';
-import { CATEGORY_MAP, num, round2 } from '../core/model.js';
+import { CATEGORY_MAP, num, round2, normalizeZone } from '../core/model.js';
 
 export const Analysis = {
   data() {
@@ -14,6 +14,7 @@ export const Analysis = {
   computed: {
     s() { return stats.value; },
     st() { return state; },
+    fixed() { return fixedAssets.value; },
     t() { return this.s.totals; },
 
     soldList() {
@@ -76,40 +77,76 @@ export const Analysis = {
     },
 
     /**
-     * 固定资产流出明细 —— 固定资产里卖掉的号 / 物品会转成标了「流出」的商品记录，
-     * 在这里单独出账（独立于倒卖货）。
+     * 固定资产流出明细 —— 两个来源合并，避免任何一边的历史数据看不到：
      *
-     * 已变现的：实际盈亏 = 到手（扣信息费）− 购入成本。
-     * 还在手上的：直接读固定资产当前剩下的（号 + 物品）购入成本 —— 卖掉一条就少一条，
-     *             所以这个数会随你在固定资产页的售出动作自然变化。
+     *   ① 固定资产里标了「已售」的号 / 物品（现在的主路径，卖完仍在固定资产页可查）
+     *   ② 商品里手工勾了「固定资产流出」的（老路径 / 手工补录）
+     *
+     * 实际盈亏 = 到手（扣信息费）− 购入成本；
+     * 还在手上 = 固定资产里还没标的（号 + 物品）+ ②里还没卖掉的。
      */
     assetOutflow() {
-      const rows = [...this.s.productRows]
-        .filter((p) => p.from_asset)
-        .sort((a, b) => (b.sale_date || '').localeCompare(a.sale_date || ''));
-      const sold = rows.filter((p) => p.status === 'sold');
-      const holding = rows.filter((p) => p.status !== 'sold');
+      // 号内物品自己没有区服字段，跟着它所属的号走
+      const charZone = {};
+      this.st.chars.forEach((c) => { charZone[c.id] = c.zone; });
+      const zoneOf = (r) => normalizeZone(r.zone || charZone[r.char_id] || '');
 
-      const fixedCharCost = round2(this.st.chars.reduce((s2, c) => s2 + num(c.purchase_price), 0));
-      const fixedItemCost = round2(this.st.assets.reduce((s2, a) => s2 + num(a.cost), 0));
+      const fromFixed = this.fixed.sold.map((r) => ({
+        key: r.__kind + ':' + r.id,
+        name: r.name,
+        zone: zoneOf(r),
+        category: r._category,
+        sub_category: r.sub_category || '',
+        origin: r.__kind === 'char' ? '自玩号' : '号内物品',
+        cost: r._cost,
+        fee: r._fee,
+        net: r._net,
+        profit: r._profit,
+        sold: true,
+        date: r.sale_date || r.purchase_date,
+      }));
+
+      const fromProducts = this.s.productRows
+        .filter((p) => p.from_asset)
+        .map((p) => ({
+          key: 'product:' + p.id,
+          name: p.name,
+          zone: normalizeZone(p.zone),
+          category: p.category,
+          sub_category: p.sub_category || '',
+          origin: '手工登记',
+          cost: num(p.purchase_price),
+          fee: p.status === 'sold' ? round2(num(p.sale_price) - num(p._net)) : 0,
+          net: p.status === 'sold' ? num(p._net) : 0,
+          profit: num(p._profit),
+          sold: p.status === 'sold',
+          date: p.status === 'sold' ? p.sale_date : p.purchase_date,
+          onHand: num(p._onHand),
+        }));
+
+      const rows = [...fromFixed, ...fromProducts].sort((a, b) =>
+        String(b.date || '').localeCompare(String(a.date || ''))
+      );
+      const sold = rows.filter((r) => r.sold);
+      const holding = rows.filter((r) => !r.sold);
 
       return {
         rows,
         sold,
         holding,
-        cost: rows.reduce((s2, p) => s2 + num(p.purchase_price), 0),
-        soldNet: sold.reduce((s2, p) => s2 + (p._net || 0), 0),
-        profit: sold.reduce((s2, p) => s2 + (p._profit || 0), 0),
-        // 还在手上 = 固定资产里没卖的（号 + 物品）+ 已推送但还没卖掉的流出记录
-        fixedCharCost,
-        fixedItemCost,
-        fixedCount: this.st.chars.length + this.st.assets.length,
+        cost: round2(sold.reduce((s2, r) => s2 + r.cost, 0)),
+        soldNet: round2(sold.reduce((s2, r) => s2 + r.net, 0)),
+        profit: round2(sold.reduce((s2, r) => s2 + r.profit, 0)),
+        // 还在手上 = 固定资产里没卖的（号 + 物品）+ 手工流出记录里还没卖的
+        fixedHoldingCost: this.fixed.holdingCost,
+        fixedHoldingCount: this.fixed.holding.length,
+        pendingCount: holding.reduce((s2, r) => s2 + 1, 0),
         onHand: round2(
-          fixedCharCost + fixedItemCost +
-          holding.reduce((s2, p) => s2 + (p._onHand || 0), 0)
+          this.fixed.holdingCost + holding.reduce((s2, r) => s2 + num(r.onHand || 0), 0)
         ),
       };
     },
+
   },
   methods: {
     money, pct, daysText, agingTone, pnlTone, dateText,
@@ -322,51 +359,54 @@ export const Analysis = {
     <template v-if="tab === 'asset'">
       <section class="stat-grid">
         <StatCard label="流出总成本" :value="money(assetOutflow.cost)" tone="neutral"
-          sub="已卖出这些东西当初记进固定资产的钱" />
+          sub="已卖出的这些当初记进固定资产的钱" />
         <StatCard label="已售回款" :value="money(assetOutflow.soldNet)" tone="info"
-          :sub="'已售出 ' + assetOutflow.sold.length + ' 件（已扣信息费）'" />
+          :sub="'已售出 ' + assetOutflow.sold.length + ' 项（已扣信息费）'" />
         <StatCard label="实际盈亏（已售变现）" :value="money(assetOutflow.profit, { sign: true })"
           :tone="pnlTone(assetOutflow.profit)"
           sub="到手 − 购入成本" />
         <StatCard label="还在手上" :value="money(assetOutflow.onHand)" tone="neutral"
-          :sub="'固定资产还剩 ' + assetOutflow.fixedCount + ' 项（号 ' + money(assetOutflow.fixedCharCost) + ' + 物品 ' + money(assetOutflow.fixedItemCost) + '）'" />
+          :sub="'固定资产还有 ' + assetOutflow.fixedHoldingCount + ' 项没卖（'
+            + money(assetOutflow.fixedHoldingCost) + '）'
+            + (assetOutflow.pendingCount ? ' · 手工流出记录挂 ' + assetOutflow.pendingCount + ' 项' : '')" />
       </section>
 
       <section class="card">
         <div class="card-head">
           <h3>固定资产流出明细</h3>
-          <span class="muted">商品里标了「资产流出」的 —— 自己号里的东西拿出来卖的账，独立于倒卖货</span>
+          <span class="muted">在固定资产页点「售出」登记的账；卖完的记录仍留在固定资产里可查可撤</span>
         </div>
         <div class="table-wrap">
           <table class="table compact">
             <thead>
               <tr>
-                <th>名称</th><th>区服</th><th>类别</th>
+                <th>名称</th><th>区服</th><th>类别</th><th>来源</th>
                 <th class="ta-r">原成本</th><th class="ta-c">状态</th>
                 <th class="ta-r">到手 / 估值</th><th class="ta-r">盈亏</th><th class="ta-c">日期</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="p in assetOutflow.rows" :key="p.id">
+              <tr v-for="p in assetOutflow.rows" :key="p.key">
                 <td><div class="cell-main">{{ p.name }}</div></td>
                 <td class="muted">{{ p.zone }}</td>
                 <td><Tag :text="catName(p.category) + (p.sub_category ? ' · ' + p.sub_category : '')" tone="default" /></td>
-                <td class="ta-r num">{{ money(p.purchase_price) }}</td>
+                <td class="muted small">{{ p.origin }}</td>
+                <td class="ta-r num">{{ money(p.cost) }}</td>
                 <td class="ta-c">
-                  <Tag v-if="p.status === 'sold'" text="已售出" tone="ok" />
-                  <Tag v-else-if="p.listed" text="已上架" tone="info" />
+                  <Tag v-if="p.sold" text="已售出" tone="ok" />
                   <Tag v-else text="持有中" tone="warn" />
                 </td>
-                <td class="ta-r num" :class="p.status === 'sold' ? 'info' : 'muted'">
-                  {{ money(p.status === 'sold' ? p._net : p._onHand) }}
+                <td class="ta-r num" :class="p.sold ? 'info' : 'muted'">
+                  {{ money(p.sold ? p.net : p.onHand) }}
                 </td>
-                <td class="ta-r num strong" :class="'pnl-' + pnlTone(p._profit)">
-                  {{ money(p._profit, { sign: true }) }}
+                <td class="ta-r num strong" :class="'pnl-' + pnlTone(p.profit)">
+                  <template v-if="p.sold">{{ money(p.profit, { sign: true }) }}</template>
+                  <span v-else class="muted">—</span>
                 </td>
-                <td class="ta-c muted">{{ dateText(p.status === 'sold' ? p.sale_date : p.purchase_date) || '—' }}</td>
+                <td class="ta-c muted">{{ dateText(p.date) || '—' }}</td>
               </tr>
               <tr v-if="!assetOutflow.rows.length">
-                <td colspan="8"><Empty text="还没有固定资产流出的记录"
+                <td colspan="9"><Empty text="还没有固定资产流出的记录"
                   sub="去「固定资产」页，在自玩号或物品那一行点「售出」，填上售出价格就会记到这里" /></td>
               </tr>
             </tbody>

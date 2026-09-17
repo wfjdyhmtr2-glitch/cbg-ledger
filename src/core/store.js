@@ -16,8 +16,8 @@ import {
   configureAuth, restoreSession, signIn, signUp, signOut, sendPasswordReset,
   authState, clearAuthMessages,
 } from './auth.js';
-import { computeAll } from './compute.js';
-import { newRole, newProduct, newAsset, newChar, demoData, uid, collectZoneNames, num, todayStr } from './model.js';
+import { computeAll, fixedAssetPnl } from './compute.js';
+import { newRole, newProduct, newAsset, newChar, demoData, uid, collectZoneNames, num, round2, todayStr } from './model.js';
 
 const CFG_KEY = 'mhxy_cbg_cfg';
 
@@ -78,6 +78,44 @@ export const stats = computed(() => computeAll(state, { view: state.view }));
  * 不需要（也无法）手工维护 —— 你录一个新区，它自己就出现了。
  */
 export const zoneList = computed(() => collectZoneNames(state.roles, state.products));
+
+/**
+ * 固定资产统一视图：自玩号 + 号内物品，一条条带上「已售」账目。
+ *
+ * 卖掉的条目**保留在列表里**（只标 sold），所以这里天然分成 holding / sold 两拨：
+ * 固定资产页用它渲染已售状态，分析页「固定资产流出」直接读 sold 那拨出账。
+ * 这样同一笔卖只在数据里存在一份，不会出现「记录」和「流出商品」对不上的情况。
+ */
+export const fixedAssets = computed(() => {
+  const decorate = (row, kind) => {
+    const pnl = fixedAssetPnl(row, kind);
+    return {
+      ...row,
+      __kind: kind,
+      _cost: pnl.cost,
+      _fee: pnl.fee,
+      _net: pnl.net,
+      _profit: pnl.profit,
+      _category: pnl.category,
+    };
+  };
+  const rows = [
+    ...state.chars.map((c) => decorate(c, 'char')),
+    ...state.assets.map((a) => decorate(a, 'asset')),
+  ];
+  const holding = rows.filter((r) => !r.sold);
+  const sold = rows.filter((r) => r.sold);
+  const sum = (list, f) => round2(list.reduce((s, r) => s + f(r), 0));
+  return {
+    rows,
+    holding,
+    sold,
+    holdingCost: sum(holding, (r) => r._cost),
+    soldCost: sum(sold, (r) => r._cost),
+    soldNet: sum(sold, (r) => r._net),
+    soldProfit: sum(sold, (r) => r._profit),
+  };
+});
 
 export const roleById = (id) => state.roles.find((r) => r.id === id) || null;
 
@@ -369,13 +407,14 @@ export async function toggleListed(item) {
 }
 
 /**
- * 固定资产售出 —— 一步把「在手资产」变成「流出记录」：
+ * 固定资产售出 —— 在**原记录上打标记**，记录保留。
  *
- *   ① 生成一条标了 from_asset 的已售商品，把购入成本、售出价、到手价、成交日期都带上；
- *      分析页的「固定资产流出」就是靠这批记录出账的（实际盈亏 = 到手 − 购入成本）。
- *   ② 把原条目从固定资产里移除 —— 东西已经变现了，不该再算「还在手上」。
+ * 号 / 物品带着购入成本继续留在固定资产里，只是标成「已售」：
+ * 不再算「还在手上」，但售出价、到手价、实际盈亏都能回看，也能撤销。
+ * 分析页的「固定资产流出」直接读这批已售记录，不另外复制一份，避免同一笔账存两份。
  *
- * 自玩号卖出时按「角色」类别计费（5%、保底 60、封顶 1000），号里的物品自动变未归号。
+ * 号卖出时按「角色」类别计费（5%、保底 60、封顶 1000）；号里的物品不受影响，
+ * 还是挂在它名下。
  *
  * @param {object} source 被卖的固定资产条目（char 或 asset）
  * @param {'char'|'asset'} kind
@@ -383,37 +422,38 @@ export async function toggleListed(item) {
  */
 export async function sellFixedAsset(source, kind, payload) {
   const isChar = kind === 'char';
-  const cost = isChar ? num(source.purchase_price) : num(source.cost);
+  const table = isChar ? 'chars' : 'assets';
   const name = String(source.name || '').trim() || (isChar ? '自玩号' : '固定资产');
-  const saleNet =
-    payload.sale_net === '' || payload.sale_net == null ? null : num(payload.sale_net);
 
-  const record = newProduct({
-    from_asset: true,
-    zone: String(source.zone || '').trim(),
-    name,
-    category: isChar ? 'role' : (source.category || 'other'),
-    sub_category: isChar ? '' : (source.sub_category || ''),
-    purchase_price: cost,
-    purchase_date: source.purchase_date || '',
-    status: 'sold',
-    listed: true,
-    listed_price: 0,
+  const next = {
+    ...source,
+    sold: true,
     sale_price: num(payload.sale_price),
-    sale_net: saleNet,
+    sale_net: payload.sale_net === '' || payload.sale_net == null ? null : num(payload.sale_net),
     sale_date: payload.sale_date || todayStr(),
     sold_zone: String(payload.sold_zone || source.zone || '').trim(),
-    note: `${isChar ? '自玩号售出' : '固定资产流出'}：购入成本 ${cost}${source.note ? ' · ' + source.note : ''}`,
-  });
+  };
 
-  const ok = await saveProduct(record);
-  if (!ok) return false;
+  const ok = await persist(table, next);
+  if (ok) notify(`「${name}」已标记售出，转去分析页「固定资产流出」出账`, 'ok');
+  return ok;
+}
 
-  if (isChar) await deleteCharKeepAssets(source.id);
-  else await deleteAsset(source.id);
-
-  notify(`「${name}」已售出，转入分析页的固定资产流出`, 'ok');
-  return true;
+/** 撤销售出：清掉标记和售出信息，重新算回「还在手上」 */
+export async function unsellFixedAsset(source, kind) {
+  const isChar = kind === 'char';
+  const table = isChar ? 'chars' : 'assets';
+  const next = {
+    ...source,
+    sold: false,
+    sale_price: 0,
+    sale_net: null,
+    sale_date: '',
+    sold_zone: '',
+  };
+  const ok = await persist(table, next);
+  if (ok) notify(`「${source.name}」已撤销售出，回到还在手上`, 'ok');
+  return ok;
 }
 
 // ---------------------------------------------------------------- 备份

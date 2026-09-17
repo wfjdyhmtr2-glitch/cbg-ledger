@@ -9,7 +9,8 @@
  */
 
 import {
-  state, saveAsset, deleteAsset, saveChar, deleteCharKeepAssets, notify, sellFixedAsset,
+  state, saveAsset, deleteAsset, saveChar, deleteCharKeepAssets, notify,
+  sellFixedAsset, unsellFixedAsset, fixedAssets,
 } from '../core/store.js';
 import { newAsset, newChar, normalizeZone, CATEGORIES, CATEGORY_MAP, assetLockInfo } from '../core/model.js';
 import { money, dateText } from '../core/format.js';
@@ -28,10 +29,18 @@ export const Assets = {
   computed: {
     st() { return state; },
     empty() { return !state.chars.length && !state.assets.length; },
+    fa() { return fixedAssets.value; },
+    /** 按 kind:id 索引，模板里按行取「已售」账目 */
+    faByKey() {
+      const m = {};
+      this.fa.rows.forEach((r) => { m[r.__kind + ':' + r.id] = r; });
+      return m;
+    },
 
     /**
      * 区 → 号 → 物品 的三层分组。
      * 没挂号（char_id 为空）的物品归进虚拟组「未归号」，提醒用户去归位。
+     * 已售的条目仍然列出（标「已售」），但不再计入「还在手上」。
      */
     groups() {
       const zoneMap = new Map();   // zone -> charObjs
@@ -54,10 +63,10 @@ export const Assets = {
         const holder = a.char_id ? charIndex.get(a.char_id) : null;
         if (holder) {
           holder.items.push(a);
-          holder.itemCost = round2(holder.itemCost + num(a.cost));
+          if (!a.sold) holder.itemCost = round2(holder.itemCost + num(a.cost));
         } else {
           unassigned.push(a);
-          unassignedCost = round2(unassignedCost + num(a.cost));
+          if (!a.sold) unassignedCost = round2(unassignedCost + num(a.cost));
         }
       });
 
@@ -68,7 +77,7 @@ export const Assets = {
       byCostDesc(unassigned);
 
       const groups = [...zoneMap.entries()].map(([zone, chars]) => {
-        const charCost = round2(chars.reduce((s, c) => s + num(c.purchase_price), 0));
+        const charCost = round2(chars.filter((c) => !c.sold).reduce((s, c) => s + num(c.purchase_price), 0));
         const itemCost = round2(chars.reduce((s, c) => s + c.itemCost, 0));
         return {
           zone,
@@ -96,14 +105,20 @@ export const Assets = {
     },
 
     totals() {
-      const charCost = round2(state.chars.reduce((s, c) => s + num(c.purchase_price), 0));
-      const itemCost = round2(state.assets.reduce((s, a) => s + num(a.cost), 0));
+      // 只算「还在手上」的；已售的单独出「已售变现」口径
+      const charCost = round2(state.chars.filter((c) => !c.sold).reduce((s, c) => s + num(c.purchase_price), 0));
+      const itemCost = round2(state.assets.filter((a) => !a.sold).reduce((s, a) => s + num(a.cost), 0));
+      const soldItems = state.assets.filter((a) => a.sold).length + state.chars.filter((c) => c.sold).length;
       return {
         charCost,
         itemCost,
         total: round2(charCost + itemCost),
-        charCount: state.chars.length,
-        assetCount: state.assets.length,
+        charCount: state.chars.filter((c) => !c.sold).length,
+        assetCount: state.assets.filter((a) => !a.sold).length,
+        soldCount: soldItems,
+        soldCost: this.fa.soldCost,
+        soldNet: this.fa.soldNet,
+        soldProfit: this.fa.soldProfit,
       };
     },
   },
@@ -113,6 +128,9 @@ export const Assets = {
     catIcon(id) { return CATEGORY_MAP[id]?.icon || '📦'; },
     lockOf(a) { return assetLockInfo(a); },
 
+    /** 取某条固定资产的「已售」账目（带成本/到手/盈亏），没卖掉也返回，字段为 0 */
+    pnlOf(kind, id) { return this.faByKey[kind + ':' + id] || null; },
+
     openNewAsset(charId) { this.editing = { type: 'asset', isNew: true, model: newAsset({ char_id: charId || null }) }; },
     openEditAsset(a) { this.editing = { type: 'asset', model: a }; },
     openNewChar() { this.editing = { type: 'char', isNew: true, model: newChar() }; },
@@ -120,14 +138,31 @@ export const Assets = {
 
     /** 卖一件号内物品 */
     openSellAsset(a) { this.selling = { source: a, kind: 'asset' }; },
-    /** 卖一个自玩号（含号里还没卖掉的东西会变未归号） */
+    /** 卖一个自玩号（号里的物品不受影响，仍挂在它名下） */
     openSellChar(c) { this.selling = { source: c, kind: 'char' }; },
 
+    /**
+     * 取原始记录 —— 分组后的号对象带着 items / itemCost 这类展示字段，
+     * 直接落库会把它们一起写进去，所以按 id 回到 state 里拿真身。
+     */
+    rawOf(kind, id) {
+      const list = kind === 'char' ? state.chars : state.assets;
+      return list.find((x) => x.id === id) || null;
+    },
+
     async onSell(payload) {
+      const { source, kind } = this.selling;
+      const raw = this.rawOf(kind, source.id) || source;
       this.busy = true;
-      const ok = await sellFixedAsset(this.selling.source, this.selling.kind, payload);
+      const ok = await sellFixedAsset(raw, kind, payload);
       this.busy = false;
       if (ok) this.selling = null;
+    },
+    async doUnsell(source, kind) {
+      const raw = this.rawOf(kind, source.id) || source;
+      this.busy = true;
+      await unsellFixedAsset(raw, kind);
+      this.busy = false;
     },
 
     async onSave(payload) {
@@ -179,15 +214,18 @@ export const Assets = {
 
     <template v-else>
 
-      <section class="kpi-row">
-        <StatCard big label="这个号总共砸了" :value="money(totals.total)" tone="accent"
+      <section class="kpi-row five">
+        <StatCard big label="还在手上" :value="money(totals.total)" tone="accent"
           :sub="'号本身 ' + money(totals.charCost) + ' + 号内物品 ' + money(totals.itemCost)" />
         <StatCard label="自玩号" :value="totals.charCount + ' 个'"
           sub="固定资产的容器，按区归置" />
         <StatCard label="号内物品" :value="totals.assetCount + ' 件'"
           sub="只记购入成本，不估值、不参与倒卖" />
-        <StatCard label="与倒卖的关系" value="相互独立" tone="neutral"
-          sub="不影响倒卖盈亏；售出的会在分析页「固定资产流出」单独立账" />
+        <StatCard label="已售变现" :value="money(totals.soldNet)" tone="info"
+          :sub="totals.soldCount + ' 项已售 · 成本 ' + money(totals.soldCost)" />
+        <StatCard label="实际盈亏（已售）" :value="money(totals.soldProfit, { sign: true })"
+          :tone="pnlTone(totals.soldProfit)"
+          sub="到手 − 购入成本，明细见分析页「固定资产流出」" />
       </section>
 
       <!-- 区 → 号 → 物品 -->
@@ -200,25 +238,35 @@ export const Assets = {
           </span>
         </div>
 
-        <div class="char-card" v-for="c in g.chars" :key="c.id">
+        <div class="char-card" v-for="c in g.chars" :key="c.id" :class="{ sold: c.sold && !c.isVirtual }">
           <div class="char-head">
             <div>
               <div class="cell-main" style="font-size: 14.5px">
                 🎭 {{ c.name }}
                 <Tag v-if="c.isVirtual" text="未归号" tone="warn" />
+                <Tag v-if="c.sold" text="已售" tone="ok" />
               </div>
               <div class="cell-sub">
                 号本身 {{ money(c.purchase_price) }}
                 <template v-if="c.purchase_date"> · {{ dateText(c.purchase_date) }}</template>
                 <template v-if="c.note"> · {{ c.note }}</template>
               </div>
+              <div class="cell-sub" v-if="c.sold && pnlOf('char', c.id)">
+                售出 {{ money(c.sale_price) }} · 到手 {{ money(pnlOf('char', c.id)._net) }}
+                · <span :class="'pnl-' + pnlTone(pnlOf('char', c.id)._profit)">
+                    实 {{ money(pnlOf('char', c.id)._profit, { sign: true }) }}
+                  </span>
+                <template v-if="c.sale_date"> · {{ dateText(c.sale_date) }}</template>
+              </div>
             </div>
             <div class="char-costs">
               <span class="muted small">物品 {{ c.items.length }} 件 · {{ money(c.itemCost) }}</span>
-              <b class="accent">小计 {{ money(round2(num(c.purchase_price) + c.itemCost)) }}</b>
+              <b class="accent">小计 {{ money(round2(num(c.sold ? 0 : c.purchase_price) + c.itemCost)) }}</b>
             </div>
-            <button class="btn tiny info" v-if="!c.isVirtual" @click="openSellChar(c)"
-              title="卖出这个自玩号，转入分析页的固定资产流出">售出</button>
+            <button class="btn tiny info" v-if="!c.isVirtual && !c.sold" @click="openSellChar(c)"
+              title="卖出这个自玩号，只做标记，可撤销">售出</button>
+            <button class="btn tiny" v-else-if="!c.isVirtual" @click="doUnsell(c, 'char')"
+              title="撤销售出，重新算回还在手上">撤销售出</button>
           </div>
 
           <table class="table compact sub-table" v-if="c.items.length">
@@ -226,18 +274,29 @@ export const Assets = {
               <tr>
                 <th>物品</th><th>类别</th>
                 <th class="ta-r">购入成本</th><th class="ta-c">购入日期</th>
-                <th class="ta-c">时间锁</th>
+                <th class="ta-c">时间锁 / 成交</th>
                 <th>备注</th><th class="ta-r">操作</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="a in c.items" :key="a.id">
-                <td><div class="cell-main">{{ catIcon(a.category) }} {{ a.name }}</div></td>
+              <tr v-for="a in c.items" :key="a.id" :class="{ 'row-sold': a.sold }">
+                <td>
+                  <div class="cell-main">{{ catIcon(a.category) }} {{ a.name }}
+                    <Tag v-if="a.sold" text="已售" tone="ok" />
+                  </div>
+                  <div class="cell-sub" v-if="a.sold && pnlOf('asset', a.id)">
+                    售出 {{ money(a.sale_price) }} · 到手 {{ money(pnlOf('asset', a.id)._net) }}
+                    · <span :class="'pnl-' + pnlTone(pnlOf('asset', a.id)._profit)">
+                        实 {{ money(pnlOf('asset', a.id)._profit, { sign: true }) }}
+                      </span>
+                  </div>
+                </td>
                 <td><Tag :text="catName(a.category) + ' · ' + (a.sub_category || '默认')" tone="default" /></td>
                 <td class="ta-r num">{{ money(a.cost) }}</td>
                 <td class="ta-c muted">{{ dateText(a.purchase_date) }}</td>
                 <td class="ta-c">
-                  <span v-if="lockOf(a) && lockOf(a).unlockDate"
+                  <span v-if="a.sold && a.sale_date" class="muted small">{{ dateText(a.sale_date) }}</span>
+                  <span v-else-if="lockOf(a) && lockOf(a).unlockDate"
                     class="lock-chip" :class="{ open: lockOf(a).unlocked }"
                     :title="'跨服购买 · ' + lockOf(a).unlockDate + ' 解锁'">
                     {{ lockOf(a).unlocked ? '🔓 已解锁' : '🔒 ' + lockOf(a).daysLeft + ' 天' }}
@@ -248,8 +307,10 @@ export const Assets = {
                 <td class="muted small">{{ a.note || '—' }}</td>
                 <td class="ta-r">
                   <div class="row-actions" v-if="!c.isVirtual">
-                    <button class="btn tiny info" @click="openSellAsset(a)"
-                      title="卖出这件物品，转入分析页的固定资产流出">售出</button>
+                    <button v-if="!a.sold" class="btn tiny info" @click="openSellAsset(a)"
+                      title="卖出这件物品，只做标记，可撤销">售出</button>
+                    <button v-else class="btn tiny" @click="doUnsell(a, 'asset')"
+                      title="撤销售出，重新算回还在手上">撤销</button>
                     <button class="btn tiny" @click="openEditAsset(a)">编辑</button>
                     <button class="btn tiny danger" @click="confirmDelAsset = a">删</button>
                   </div>

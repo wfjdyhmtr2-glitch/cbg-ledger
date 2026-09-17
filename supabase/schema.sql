@@ -66,6 +66,7 @@ create table if not exists public.products (
 
 -- 自玩号 —— 固定资产的「容器」：常玩的号本身（哪怕是空号）也有购入成本。
 -- 自己练起来的号，purchase_price 填 0 即可。
+-- sold 系列字段：卖掉后**保留记录**只做标记，不再算「还在手上」，可以撤销。
 create table if not exists public.chars (
   id              text primary key,
   owner           uuid default auth.uid(),
@@ -73,12 +74,18 @@ create table if not exists public.chars (
   name            text          not null default '',  -- 号名
   purchase_price  numeric(14,2) not null default 0,   -- 号本身的购入成本
   purchase_date   date,
+  sold            boolean       not null default false,
+  sale_price      numeric(14,2) not null default 0,
+  sale_net        numeric(14,2),                      -- 手填到手价（可空，空则按费率算）
+  sale_date       date,
+  sold_zone       text          not null default '',
   note            text          not null default '',
   created_at      timestamptz   not null default now()
 );
 
 -- 固定资产 —— 号里陆续买入的东西，挂 char_id 指向所属号（空 = 未归号）。
 -- 完全独立于倒卖核算：不计入投入 / 回款 / 盈亏，只归集「购入总成本」。
+-- sold 系列字段同 chars：卖了只标记、保留记录。
 create table if not exists public.assets (
   id              text primary key,
   owner           uuid default auth.uid(),
@@ -89,6 +96,11 @@ create table if not exists public.assets (
   cost            numeric(14,2) not null default 0,   -- 购入成本
   purchase_date   date,
   cross_server    boolean       not null default false,  -- 跨服购买，180 天时间锁
+  sold            boolean       not null default false,
+  sale_price      numeric(14,2) not null default 0,
+  sale_net        numeric(14,2),
+  sale_date       date,
+  sold_zone       text          not null default '',
   note            text          not null default '',
   created_at      timestamptz   not null default now()
 );
@@ -110,6 +122,18 @@ alter table public.assets   add column if not exists cross_server boolean not nu
 alter table public.products add column if not exists sub_category text not null default '';
 alter table public.assets   add column if not exists sub_category text not null default '';
 alter table public.products add column if not exists from_asset boolean not null default false;
+
+-- 固定资产「已售」标记（卖掉的号/物品保留记录，只标记，可撤销）
+alter table public.chars    add column if not exists sold       boolean       not null default false;
+alter table public.chars    add column if not exists sale_price numeric(14,2) not null default 0;
+alter table public.chars    add column if not exists sale_net   numeric(14,2);
+alter table public.chars    add column if not exists sale_date  date;
+alter table public.chars    add column if not exists sold_zone  text          not null default '';
+alter table public.assets   add column if not exists sold       boolean       not null default false;
+alter table public.assets   add column if not exists sale_price numeric(14,2) not null default 0;
+alter table public.assets   add column if not exists sale_net   numeric(14,2);
+alter table public.assets   add column if not exists sale_date  date;
+alter table public.assets   add column if not exists sold_zone  text          not null default '';
 
 -- ---------------------------------------------------------------- 索引
 

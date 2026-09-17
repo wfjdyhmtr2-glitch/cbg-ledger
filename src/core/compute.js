@@ -43,6 +43,36 @@ export function feePaid(item, kind) {
 }
 
 /**
+ * 固定资产条目（自玩号 / 号内物品）的「已售」账目。
+ *
+ * 号和物品的费率不一样：号走角色档（5%、保底 60、封顶 1000），物品按自己的类别。
+ * 卖掉的号/物品保留在固定资产里只做标记，所以这里既给它自己的行用，也给分析页用。
+ *
+ * @param {object} item  char 或 asset 记录（要有 sold / sale_price / sale_net）
+ * @param {'char'|'asset'} kind
+ */
+export function fixedAssetPnl(item, kind) {
+  const isChar = kind === 'char';
+  const category = isChar ? 'role' : (item.category || 'other');
+  const cost = isChar ? num(item.purchase_price) : num(item.cost);
+  const gross = num(item.sale_price);
+  // 卖掉了才算出账；没卖就是纯在手成本
+  const net = item.sold
+    ? (item.sale_net !== null && item.sale_net !== undefined && item.sale_net !== ''
+        ? num(item.sale_net)
+        : netFromGross(category, gross))
+    : 0;
+  return {
+    category,
+    cost: round2(cost),
+    gross: round2(gross),
+    net: round2(net),
+    fee: round2(gross - net),
+    profit: item.sold ? round2(net - cost) : 0,
+  };
+}
+
+/**
  * 未售资产「在手值多少钱」
  * 口径：挂了牌的按挂牌价，没挂的按成本价。
  *

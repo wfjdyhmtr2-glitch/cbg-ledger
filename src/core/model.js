@@ -245,6 +245,11 @@ export function newChar(patch = {}) {
     name: '',
     purchase_price: 0,
     purchase_date: todayStr(),
+    sold: false,           // 已售出 —— 保留记录只做标记，不再算「还在手上」
+    sale_price: 0,
+    sale_net: null,
+    sale_date: '',
+    sold_zone: '',
     note: '',
     created_at: new Date().toISOString(),
     ...patch,
@@ -267,6 +272,11 @@ export function newAsset(patch = {}) {
     cost: 0,
     purchase_date: todayStr(),
     cross_server: false,   // 跨服购买的物品有 180 天时间锁
+    sold: false,           // 已售出 —— 保留记录只做标记，不再算「还在手上」
+    sale_price: 0,
+    sale_net: null,        // 手填到手价（可空，空则按费率算）
+    sale_date: '',
+    sold_zone: '',
     note: '',
     created_at: new Date().toISOString(),
     ...patch,
@@ -390,11 +400,18 @@ export function demoData() {
     char_id: c1.id, name: '锦衣·云鹤', category: 'other', cost: 688, purchase_date: d(90),
     note: '好看就行，别问值不值',
   });
+  // 已经卖掉的 —— 保留记录只打「已售」标记，会在分析页「固定资产流出」出账
+  const a6 = newAsset({
+    char_id: c1.id, name: '130无级别·靴子', category: 'equipment', sub_category: '鞋子',
+    cost: 6000, purchase_date: d(220), sold: true,
+    sale_price: 7800, sale_date: d(35), sold_zone: Z1,
+    note: '换下来的，挂藏宝阁卖了',
+  });
 
   return {
     roles: [r1, r2, r3, r4],
     products: [p1, p2, p3, p4, p5, p6, p7],
     chars: [c1],
-    assets: [a1, a2, a3, a4, a5],
+    assets: [a1, a2, a3, a4, a5, a6],
   };
 }

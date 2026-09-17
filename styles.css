@@ -834,6 +834,16 @@ input.dimmed { opacity: .45; background: var(--card-2, rgba(255,255,255,.04)); c
 .char-costs b { font-size: 15px; }
 .char-actions { display: flex; gap: 6px; justify-content: flex-end; }
 
+/* 已售出的号 / 物品：保留在列表里，但压暗、加左侧标记，一眼区分「还在手上」 */
+.char-card.sold {
+  border-color: var(--border);
+  background: transparent;
+  opacity: 0.72;
+}
+.char-card.sold .char-head { border-left: 2px solid var(--up); padding-left: 10px; }
+tr.row-sold > td { opacity: 0.72; }
+tr.row-sold { background: transparent; }
+
 /* ------------------------------------------------------------ 杂项 */
 
 .gap { display: inline-block; width: 6px; }

@@ -74,6 +74,14 @@ npm test    # verify + assets-sell + imports + tpl-check
 
 `scripts/sync-github.py` 是主开发机（这台 Mac）专用的发布脚本——该机网络对 git 推送协议有干扰，
 改完代码后由助手通过它把全量内容镜像到本仓库（走 GitHub API）。另一台电脑正常 git pull 即可拿到。
+脚本**不上传** `.workbuddy`（会话笔记）与 `scripts`（同步脚本），这两个目录永远不进仓库。
+
+**线上地址（GitHub Pages 已开启）：<https://wfjdyhmtr2-glitch.github.io/cbg-ledger/>**
+
+- 仓库已转**公开**（Free 套餐下私有库开不了 Pages）；Pages 绑 main 分支根目录
+- 同步 / push 后 Pages 自动重建，1～10 分钟生效；根目录的空 `.nojekyll` 让它跳过 Jekyll、原样发布
+- 另一台电脑直接 `git push` 也能触发发布
+- **仓库公开 ≠ 数据公开**：仓库里只有界面代码，数据在 Supabase，靠登录态 + RLS 隔离
 
 ## 版本历史
 
@@ -81,3 +89,5 @@ npm test    # verify + assets-sell + imports + tpl-check
 - 2026-09-18 v2：固定资产可售出（**只标记已售、保留记录、可撤销**，已售独立成「已售」区）；
   成本口径定为「角色买入价 + 商品自填买入价」相加；分析页「固定资产流出」合并已售固定资产；
   新增 `tpl-check` / `imports` / `assets-sell` 三组自测；README 与本文档同步更新
+- 2026-09-18 v3：仓库转**公开**并开启 **GitHub Pages**（得到永久地址，替代临时沙箱预览）；
+  加 `.nojekyll` 跳过 Jekyll；README / COLLAB 补上线上地址与「仓库公开≠数据公开」的说明

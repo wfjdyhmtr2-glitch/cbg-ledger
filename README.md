@@ -46,9 +46,20 @@ src/
 vendor/
 ```
 
-可以拖到任意静态托管（CloudStudio / EdgeOne Pages / Vercel / Netlify / Nginx）。
-部署后记得回到 Supabase 的 **Authentication → URL Configuration**，
-把 **Site URL** 改成你的线上地址，否则「忘记密码」邮件里的链接会跳回 localhost。
+**本仓库已开启 GitHub Pages，线上地址：**
+
+**<https://wfjdyhmtr2-glitch.github.io/cbg-ledger/>**
+
+推一次代码就会自动重新发布，等 1～10 分钟生效。仓库里放了个空的 `.nojekyll`，
+告诉 Pages 跳过 Jekyll 处理、把静态文件原样发出去。
+
+也可以放到任意静态托管（EdgeOne Pages / Vercel / Netlify / Nginx）。
+换托管后记得回到 Supabase 的 **Authentication → URL Configuration**，
+把 **Site URL** 改成新地址，否则「忘记密码」邮件里的链接会跳回旧地址。
+
+> **网页和数据是分开的。** 仓库和网址里只有**界面代码**，
+> 你的角色、商品、固定资产全在 Supabase 里。所以换托管、仓库转私有、
+> 甚至哪天网址挂了，**数据一条都不会少** —— 真正要备份的是 Supabase 那份数据。
 
 ---
 

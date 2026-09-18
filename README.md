@@ -18,9 +18,14 @@
    - 脚本是**幂等**的，以后版本升级加了字段，把这份重跑一遍就能补齐结构
    - 只想补某一批新字段，也可以跑 `supabase/migration-*.sql` 里对应的增量脚本
 4. 左侧 **Authentication → Sign In / Providers → Email**：
-   - 关掉 **Allow new users to sign up**（这样别人注册不进来）
+   - 关掉 **Allow new users to sign up**（这样别人注册不进来）—— 关掉后登录页会自动隐藏「注册新账号」
    - 关掉 **Confirm email**（自己的系统，省掉邮箱验证，登录更顺）
 5. 左侧 **Authentication → Users → Add user**，手工建你自己的账号，勾上 **Auto Confirm User**
+6. 左侧 **Authentication → URL Configuration**：
+   - **Site URL** 填你实际访问的地址（例如 `https://你的用户名.github.io/cbg-ledger/`）
+   - **Redirect URLs** 里加一条同样的地址 + `/**`（例如 `https://你的用户名.github.io/cbg-ledger/**`）
+   - 本地调试的话再加 `http://localhost:8765/**`
+   - 不配的话，「忘记密码」邮件里的链接会跳错地方或者被拒
 
 ### 第二步：把页面跑起来
 
@@ -315,11 +320,13 @@ npm test
 但仍然建议**每周「导出 JSON」**留一份本地存档 —— 万一误删能有据可依。
 
 **Q：登录提示密码错误，或者注册后进不去？**
-- 密码不对：Supabase → **Authentication → Users** → 选中你的用户 → Reset password 直接改
+- **忘了密码**：登录页点「忘记密码」→ 邮件里点链接 → 回到应用直接输新密码（链接只能用一次、有有效期）。
+  要走这条路，得先在 Supabase 配好 **Site URL / Redirect URLs**（快速开始第 6 步），
+  否则链接会跳错地方。链接过期了也没关系，回登录页重新点一次即可。
+- **最快的兜底**：Supabase → **Authentication → Users** → 选中你的用户 → **Reset password** 直接改
 - 注册后登录不了：多半是开着「Confirm email」。可以在 **Users** 页面点该用户勾上
   Auto Confirm，或者到 SQL Editor 执行
   `update auth.users set email_confirmed_at = now() where email = '你的邮箱';`
-- 忘了密码又没配 Site URL：同上，直接去 Users 页面重置最快
 
 **Q：想改手续费费率？**
 改 `src/core/fee.js` 里的 `calcFee()` 就行，其他地方都走它。

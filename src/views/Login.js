@@ -7,7 +7,7 @@
  *   3. 登录已过期     → 同样回到这里
  */
 
-import { state, auth, saveConfig, login, register, resetPassword } from '../core/store.js';
+import { state, auth, saveConfig, login, register, resetPassword, setNewPassword } from '../core/store.js';
 
 export const Login = {
   data() {
@@ -17,6 +17,8 @@ export const Login = {
       email: '',
       password: '',
       tab: 'signin',
+      pwd1: '',
+      pwd2: '',
       showKey: false,
       showPwd: false,
       showGuide: false,
@@ -29,6 +31,12 @@ export const Login = {
     err() { return this.localErr || auth.error || state.bootError; },
     notice() { return auth.notice; },
     hasCfg() { return !!(state.cfg.supabaseUrl && state.cfg.supabaseKey); },
+    /** 从「忘记密码」邮件跳回来的：先设新密码 */
+    recovery() { return auth.recovery === true; },
+    /** 模板里不能直接用模块导入的 auth，包一层 */
+    userEmail() { return auth.user?.email || ''; },
+    /** 项目关了注册就不显示「注册新账号」——那时点了必然报错，纯属误导 */
+    signupDisabled() { return auth.signupDisabled === true; },
     submitting() {
       return state.phase === 'loading' || auth.busy;
     },
@@ -62,6 +70,14 @@ export const Login = {
       this.localErr = '';
       if (!this.email.trim()) { this.localErr = '先填写邮箱，再点忘记密码'; return; }
       await resetPassword(this.email);
+    },
+    /** 设新密码 —— 成功后 store 会直接把人送进后台 */
+    async submitNewPwd() {
+      this.localErr = '';
+      if (!this.pwd1) { this.localErr = '请填写新密码'; return; }
+      if (this.pwd1.length < 6) { this.localErr = '密码至少 6 位'; return; }
+      if (this.pwd1 !== this.pwd2) { this.localErr = '两次输入的密码不一致'; return; }
+      await setNewPassword(this.pwd1);
     },
     switchTab(t) {
       this.tab = t;
@@ -125,10 +141,40 @@ export const Login = {
           <li>到 <a href="https://supabase.com" target="_blank" rel="noopener">supabase.com</a> 注册并新建一个项目（免费额度够用）</li>
           <li>项目建好后，左侧 <b>Project Settings → API</b></li>
           <li>复制 <b>Project URL</b> 和 <b>anon public key</b>，填到上面两个框里</li>
-          <li>保存后回到这里，点「注册新账号」建一个你自己的账号</li>
           <li>到 Supabase 左侧 <b>SQL Editor</b>，把项目里 <code>supabase/schema.sql</code> 的内容整段粘贴执行一次</li>
+          <li>建账号：默认可以在上面点「注册新账号」；<b>如果关了注册</b>，就到 Supabase 的
+            <b>Authentication → Users → Add user</b> 手工建一个（勾上 Auto Confirm）</li>
           <li>回到这里登录，就能开始录数据了</li>
         </ol>
+      </template>
+
+      <!-- 从「忘记密码」邮件跳回来：先设新密码，设完直接进后台 -->
+      <template v-else-if="recovery">
+        <h2>设置新密码</h2>
+        <p class="login-sub">
+          邮箱已验证，设一个新密码就完成。
+          <template v-if="userEmail">（{{ userEmail }}）</template>
+        </p>
+
+        <Field label="新密码" hint="至少 6 位">
+          <div class="input-with-btn">
+            <input class="input" :type="showPwd ? 'text' : 'password'" v-model="pwd1"
+              placeholder="••••••••" autocomplete="new-password" @keyup.enter="submitNewPwd" />
+            <button class="btn tiny" type="button" @click="showPwd = !showPwd">{{ showPwd ? '隐藏' : '显示' }}</button>
+          </div>
+        </Field>
+
+        <Field label="再输一次">
+          <input class="input" :type="showPwd ? 'text' : 'password'" v-model="pwd2"
+            placeholder="••••••••" autocomplete="new-password" @keyup.enter="submitNewPwd" />
+        </Field>
+
+        <p class="form-err" v-if="err">{{ err }}</p>
+        <p class="form-hint" v-if="notice && !err">{{ notice }}</p>
+
+        <button class="btn primary block" :disabled="submitting" @click="submitNewPwd">
+          {{ submitting ? '保存中…' : '保存新密码并进入' }}
+        </button>
       </template>
 
       <!-- 第 2 步：登录 / 注册 -->
@@ -140,7 +186,7 @@ export const Login = {
             : '注册后这个账号就是你的专属入口，别人看不到你的数据。' }}
         </p>
 
-        <div class="login-tabs">
+        <div class="login-tabs" v-if="!signupDisabled">
           <button :class="{ active: tab === 'signin' }" @click="switchTab('signin')">登录</button>
           <button :class="{ active: tab === 'signup' }" @click="switchTab('signup')">注册新账号</button>
         </div>

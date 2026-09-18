@@ -14,6 +14,7 @@ import { reactive, computed } from 'vue';
 import { createSupabaseAdapter } from '../adapters/supabase.js';
 import {
   configureAuth, restoreSession, signIn, signUp, signOut, sendPasswordReset,
+  updatePassword, captureUrlSession, fetchAuthSettings,
   authState, clearAuthMessages,
 } from './auth.js';
 import { computeAll, fixedAssetPnl } from './compute.js';
@@ -171,6 +172,28 @@ export async function boot() {
 
   configureAuth(state.cfg.supabaseUrl, state.cfg.supabaseKey);
 
+  // 「忘记密码」邮件跳回来时，token 拼在 URL 的 hash 里 —— 必须先把它认领掉，
+  // 否则会被当成未知路由、token 白白丢掉，用户永远看不到改密码界面。
+  let claimed = null;
+  try {
+    claimed = await captureUrlSession();
+  } catch (e) {
+    state.bootError = e.message;
+  }
+
+  // 顺手问一下注册开关（失败不影响登录，界面上按「未知」处理）
+  fetchAuthSettings();
+
+  // 邮件回跳且是重置密码：停在这一步，先让人设新密码
+  if (claimed === 'recovery') {
+    state.phase = 'needLogin';
+    return;
+  }
+  if (claimed === 'error') {
+    state.phase = 'needLogin';
+    return;
+  }
+
   let signed = false;
   try {
     signed = await restoreSession();
@@ -258,6 +281,13 @@ export async function register(email, password) {
 
 export async function resetPassword(email) {
   return sendPasswordReset(email);
+}
+
+/** 重置密码流程的最后一步：设好新密码就直接进后台，不让用户再登一次 */
+export async function setNewPassword(password) {
+  const ok = await updatePassword(password);
+  if (ok) await enterApp();
+  return ok;
 }
 
 export async function logout() {

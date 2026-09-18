@@ -24,6 +24,13 @@ export const authState = reactive({
   busy: false,
   /** 注册后如果需要邮箱验证，Supabase 会返回这个提示 */
   notice: '',
+  /**
+   * 从「重置密码」邮件跳回来 —— 这时会话已经拿到了，但必须先设新密码。
+   * 置 true 时登录页会渲染成「设置新密码」，设完再放行。
+   */
+  recovery: false,
+  /** 项目是否关闭了注册（null = 还没问到）。关了就不显示「注册新账号」 */
+  signupDisabled: null,
 });
 
 let cfg = { url: '', key: '' };
@@ -74,6 +81,13 @@ function friendlyError(httpStatus, data) {
   }
   if (/failed to fetch|networkerror|load failed/i.test(msg)) {
     return '连不上 Supabase，检查一下 Project URL 是否正确、网络是否通畅';
+  }
+  // 邮件链接一次性的、有有效期；会话被撤销 / 密码改过也会走到这里
+  if (
+    httpStatus === 401 ||
+    /invalid jwt|jwt is (malformed|expired)|token is malformed|invalid number of segments|auth session missing|session from session_id claim/i.test(msg)
+  ) {
+    return '登录状态已失效。如果是重置密码的邮件链接，请回登录页重新点一次「忘记密码」（链接只能用一次，且有有效期）。';
   }
   if (httpStatus === 429) return '请求太频繁，等一分钟再试';
   if (httpStatus === 400 && /email/i.test(msg)) return `邮箱格式或内容有问题：${msg}`;
@@ -316,20 +330,136 @@ export async function signOut() {
   }
 }
 
-/** 发一封重置密码的邮件（需要在 Supabase 配好 Site URL） */
+/** 发一封重置密码的邮件
+ *
+ *  必须显式带上 redirect_to：不传的话 Supabase 会用控制台里的 Site URL 兜底，
+ *  而本站是部署在子路径下的（/cbg-ledger/），Site URL 一旦配错就跳到 404。
+ *  显式传当前页面地址最稳，同时也要求它出现在 Supabase 的 Redirect URLs 白名单里。
+ */
 export async function sendPasswordReset(email) {
   authState.busy = true;
   authState.error = '';
   authState.notice = '';
   try {
-    await call('/recover', { body: { email: String(email).trim() } });
-    authState.notice = '重置密码的邮件已发出，去收件箱看看（记得先在 Supabase 配好 Site URL，否则链接会跳到 localhost）。';
+    await call('/recover', {
+      body: { email: String(email).trim(), redirect_to: currentAppUrl() },
+    });
+    authState.notice = '重置密码的邮件已发出，点邮件里的链接回来就能设新密码。';
     return true;
   } catch (e) {
     authState.error = e.message;
     return false;
   } finally {
     authState.busy = false;
+  }
+}
+
+/** 当前应用地址（去掉 query 和 hash，用于邮件回跳） */
+function currentAppUrl() {
+  if (typeof window === 'undefined') return '';
+  const { origin, pathname } = window.location;
+  return origin + pathname;
+}
+
+/**
+ * 认领邮件回跳带来的会话。
+ *
+ * Supabase 的邮件链接是「隐式流」：token 直接拼在 URL 的 hash 里，形如
+ *   .../cbg-ledger/#access_token=xxx&refresh_token=yyy&type=recovery
+ * 本站的 hash 又用来做路由，所以这一步必须在路由启动**之前**做掉，
+ * 否则 `access_token=...` 会被当成未知路由，token 没人消费，用户永远看不到改密码界面。
+ *
+ * @returns {Promise<'recovery'|'session'|'error'|null>} 认领结果，null = 这个 hash 不是认证回跳
+ */
+export async function captureUrlSession() {
+  if (typeof window === 'undefined') return null;
+  const raw = String(window.location.hash || '').replace(/^#/, '');
+  // 正常路由长这样：#/assets —— 没有等号。认证回跳一定带 key=value，用它区分
+  if (!raw || !raw.includes('=')) return null;
+
+  const p = new URLSearchParams(raw);
+  const errDesc = p.get('error_description') || p.get('error');
+  const access = p.get('access_token');
+  const refresh = p.get('refresh_token');
+  const type = p.get('type') || '';
+
+  // 不管成功失败，先把 token 从地址栏擦掉：一是不该留在历史记录里，二是别干扰路由
+  try {
+    window.history.replaceState(null, '', currentAppUrl() + (window.location.search || ''));
+  } catch { /* 个别环境不让改历史，忽略 */ }
+
+  if (errDesc) {
+    const text = String(errDesc).replace(/\+/g, ' ');
+    // 邮件链接是一次性的、有有效期，过期是最常见的失败
+    authState.error = /expired|invalid/i.test(text)
+      ? '这个邮件链接已失效或过期了（链接只能用一次，且有时间限制）。回登录页重新点一次「忘记密码」。'
+      : `邮件链接有问题：${text}`;
+    authState.status = 'signedOut';
+    return 'error';
+  }
+
+  if (!access) return null;
+
+  applySession(toSession({
+    access_token: access,
+    refresh_token: refresh,
+    expires_in: p.get('expires_in'),
+  }));
+
+  // 邮件回跳的 hash 里没有 user 对象，补问一下，好让顶栏能显示邮箱
+  try {
+    const u = await call('/user', { method: 'GET', token: session.access_token });
+    session.user = { id: u.id, email: u.email };
+    persist();
+    authState.user = session.user;
+  } catch { /* 拿不到就先空着，不影响改密码 */ }
+
+  if (type === 'recovery') {
+    authState.recovery = true;
+    authState.notice = '邮箱已验证，设置一个新密码就完成。';
+  }
+  return type === 'recovery' ? 'recovery' : 'session';
+}
+
+/** 设置新密码（重置密码流程的最后一步） */
+export async function updatePassword(newPassword) {
+  if (!session?.access_token) {
+    authState.error = '会话已失效，请重新点一次邮件里的链接';
+    return false;
+  }
+  authState.busy = true;
+  authState.error = '';
+  authState.notice = '';
+  try {
+    await call('/user', { method: 'PUT', token: session.access_token, body: { password: newPassword } });
+    authState.recovery = false;
+    authState.notice = '密码已更新，正在进入后台…';
+    return true;
+  } catch (e) {
+    authState.error = e.message;
+    return false;
+  } finally {
+    authState.busy = false;
+  }
+}
+
+/**
+ * 问一下项目有没有关闭注册 —— 关了就不显示「注册新账号」按钮（点了必然报错）。
+ * 拿不到就返回 null，界面上按「未知」处理（照常显示），不因为一个附带请求挡住登录。
+ */
+export async function fetchAuthSettings() {
+  if (!normalizedUrl() || !cfg.key) return null;
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    const res = await fetch(`${apiBase()}/settings`, { headers: baseHeaders(), signal: ctrl.signal });
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    const d = await res.json();
+    authState.signupDisabled = d?.disable_signup === true;
+    return authState.signupDisabled;
+  } catch {
+    return null;
   }
 }
 

@@ -323,8 +323,8 @@ export const Analysis = {
               <th class="ta-r">已回款</th>
               <th class="ta-r">回本率</th>
               <th class="ta-r">在手占用</th>
-              <th class="ta-r">预计盈亏</th>
-              <th class="ta-r">回报率</th>
+              <th class="ta-r">在库盈亏</th>
+              <th class="ta-r">已实现回报率</th>
               <th class="ta-c">平均周转</th>
             </tr>
           </thead>
@@ -338,9 +338,9 @@ export const Analysis = {
               <td class="ta-r num info">{{ money(z.recovered) }}</td>
               <td class="ta-r num">{{ pct(z.invest ? z.recovered / z.invest : 0) }}</td>
               <td class="ta-r num">{{ money(z.locked) }}</td>
-              <td class="ta-r"><Pnl :value="z.profit" /></td>
-              <td class="ta-r num" :class="'pnl-' + pnlTone(z.invest ? z.profit / z.invest : 0)">
-                {{ pct(z.invest ? z.profit / z.invest : 0) }}
+              <td class="ta-r"><Pnl :value="z.unrealized" /></td>
+              <td class="ta-r num" :class="'pnl-' + pnlTone(z.invest ? z.realized / z.invest : 0)">
+                {{ pct(z.invest ? z.realized / z.invest : 0) }}
               </td>
               <td class="ta-c">{{ z.avgCycle == null ? '—' : z.avgCycle + ' 天' }}</td>
             </tr>

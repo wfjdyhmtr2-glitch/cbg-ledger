@@ -83,13 +83,11 @@ export const Zones = {
           <span class="zs-note">已卖出资产：回款 − 成本</span>
         </div>
         <div class="zs-item">
-          <span class="zs-label">预计盈亏（未落袋）</span>
+          <span class="zs-label">在库盈亏（未落袋）</span>
           <span class="zs-value" :class="'pnl-' + pnlTone(grand.unrealizedProfit)">
             {{ money(grand.unrealizedProfit, { sign: true }) }}
           </span>
-          <span class="zs-note">
-            在手资产：估值 − 未收回成本 · 合计总盈亏 {{ money(grand.totalProfit, { sign: true }) }}
-          </span>
+          <span class="zs-note">在库资产：估值 − 未收回成本</span>
         </div>
       </div>
 
@@ -120,8 +118,8 @@ export const Zones = {
               <b :class="'pnl-' + pnlTone(z.realized)">{{ money(z.realized, { sign: true }) }}</b>
             </div>
             <div class="zc-m">
-              <span title="在手资产：估值 − 未收回成本（实际 + 预计 = 总盈亏）">预计盈亏</span>
-              <b :class="'pnl-' + pnlTone(z.profit - z.realized)">{{ money(z.profit - z.realized, { sign: true }) }}</b>
+              <span title="在库资产：估值 − 未收回成本">在库盈亏</span>
+              <b :class="'pnl-' + pnlTone(z.unrealized)">{{ money(z.unrealized, { sign: true }) }}</b>
             </div>
           </div>
 

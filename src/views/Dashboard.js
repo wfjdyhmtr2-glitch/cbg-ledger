@@ -44,8 +44,8 @@ export const Dashboard = {
     },
     profitSplit() {
       return [
-        { label: '已实现', value: this.t.realizedProfit, tone: pnlTone(this.t.realizedProfit) },
-        { label: '浮动', value: this.t.unrealizedProfit, tone: pnlTone(this.t.unrealizedProfit) },
+        { label: '实际售出', value: this.t.realizedProfit, tone: pnlTone(this.t.realizedProfit) },
+        { label: '在库', value: this.t.unrealizedProfit, tone: pnlTone(this.t.unrealizedProfit) },
       ];
     },
     topZones() {
@@ -83,16 +83,16 @@ export const Dashboard = {
       <section class="kpi-row six">
         <StatCard big label="总投入" :value="money(t.invest)" tone="accent"
           :sub="c.roles + ' 个角色 · ' + c.products + ' 件商品 · ' + c.zones + ' 个区服'" />
+        <StatCard label="在库成本" :value="money(t.unsoldCost)" tone="warn"
+          :sub="'还没卖的货压了这么多钱 · 当前估值 ' + money(t.onHand)" />
+        <StatCard label="在库盈亏" :value="money(t.unrealizedProfit, { sign: true })" :tone="pnlTone(t.unrealizedProfit)"
+          sub="在库估值 − 在库成本 · 还没卖，会跟着上架价变" />
+        <StatCard label="实际售出盈亏" :value="money(t.realizedProfit, { sign: true })" :tone="pnlTone(t.realizedProfit)"
+          sub="已经落袋的部分 · 到手 − 对应成本" />
         <StatCard label="已回款" :value="money(t.recovered)" tone="info"
           :sub="'回本率 ' + pct(t.unlockRate)" />
-        <StatCard label="总预估市值" :value="money(t.estTotal)" tone="neutral"
-          :sub="c.listed + ' 项已上架 · 按上架价合计'" />
         <StatCard label="固定资产" :value="money(assetInfo.total)" tone="neutral"
           :sub="assetInfo.charCount + ' 个自玩号 · ' + assetInfo.itemCount + ' 件物品 · 独立核算'" />
-        <StatCard label="实际盈亏" :value="money(t.realizedProfit, { sign: true })" :tone="pnlTone(t.realizedProfit)"
-          sub="已售落袋 · 回款 − 成本" />
-        <StatCard label="预计盈亏" :value="money(t.unrealizedProfit, { sign: true })" :tone="pnlTone(t.unrealizedProfit)"
-          sub="在手估值 − 成本 · 未落袋" />
       </section>
 
       <!-- 回本进度 -->
@@ -114,7 +114,7 @@ export const Dashboard = {
           <div class="split" v-for="sp in profitSplit" :key="sp.label">
             <span class="split-label">{{ sp.label }}盈亏</span>
             <span class="split-value" :class="'pnl-' + sp.tone">{{ money(sp.value, { sign: true }) }}</span>
-            <span class="split-note">{{ sp.label === '已实现' ? '已经落袋的' : '在手资产估值 − 其成本' }}</span>
+            <span class="split-note">{{ sp.label === '实际售出' ? '已经落袋的' : '在库资产估值 − 其成本' }}</span>
           </div>
           <div class="split">
             <span class="split-label">平均周转</span>
@@ -155,7 +155,7 @@ export const Dashboard = {
           </div>
           <table class="table compact">
             <thead>
-              <tr><th>区服</th><th class="ta-r">投入</th><th class="ta-r">在手</th><th class="ta-r">预计盈亏</th></tr>
+              <tr><th>区服</th><th class="ta-r">投入</th><th class="ta-r">在库</th><th class="ta-r">在库盈亏</th></tr>
             </thead>
             <tbody>
               <tr v-for="z in topZones" :key="z.id">
@@ -165,7 +165,7 @@ export const Dashboard = {
                 </td>
                 <td class="ta-r num">{{ wan(z.invest) }}</td>
                 <td class="ta-r num">{{ wan(z.onHand) }}</td>
-                <td class="ta-r"><Pnl :value="z.profit" /></td>
+                <td class="ta-r"><Pnl :value="z.unrealized" /></td>
               </tr>
               <tr v-if="!topZones.length"><td colspan="4" class="ta-c muted">还没有区服数据</td></tr>
             </tbody>
@@ -182,7 +182,7 @@ export const Dashboard = {
         <p class="tip-text">
           拆号之后，空壳号的价值其实已经转移到卖出去的那些装备/召唤兽上了。
           如果你不填估值也不挂价，后台会保守地按 <b>0</b> 计它的残值，
-          于是「预计盈亏」看起来会比实际差。补个估值就准了。
+          于是「在库盈亏」看起来会比实际差。补个估值就准了。
         </p>
         <div class="tip-list">
           <span class="tip-item" v-for="r in s.unvaluedShells" :key="r.id">

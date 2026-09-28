@@ -438,6 +438,8 @@ export function computeAll(state, opts = {}) {
         profit: round2(recovered + onHand - invest),
         // 与全局同一口径：角色买入价 + 商品成本 − 已回款金额（= 还没回本的成本）
         locked: round2(invest - soldCost),
+        // 在库盈亏 = 在库资产估值 − 在库资产成本（和 totals.unrealizedProfit 同口径）
+        unrealized: round2(onHand - (invest - soldCost)),
         transferredIn,
         transferredOut,
         roleCount: zRoles.length,

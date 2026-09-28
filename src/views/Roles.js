@@ -1,7 +1,7 @@
 /**
  * 角色管理
  * 一个角色 = 一个项目批次：买进来 → （可选拆号）→ 本体/空壳卖出
- * 表格里直接看得到「投入 / 已回款 / 在手 / 预计盈亏 / 持有天数」，展开能看拆号明细
+ * 表格里直接看得到「投入 / 已回款 / 在手 / 在库盈亏 / 持有天数」，展开能看拆号明细
  */
 
 import {
@@ -172,7 +172,7 @@ export const Roles = {
       <span>已回款 <b class="info">{{ money(summary.recovered) }}</b></span>
       <span>在手 <b>{{ money(summary.onHand) }}</b></span>
       <span>实际盈亏 <b :class="'pnl-' + pnlTone(summary.realized)">{{ money(summary.realized, { sign: true }) }}</b></span>
-      <span>预计盈亏 <b :class="'pnl-' + pnlTone(summary.profit - summary.realized)">{{ money(summary.profit - summary.realized, { sign: true }) }}</b></span>
+      <span>在库盈亏 <b :class="'pnl-' + pnlTone(summary.profit - summary.realized)">{{ money(summary.profit - summary.realized, { sign: true }) }}</b></span>
       <span v-if="summary.losers" class="warn-text">其中 {{ summary.losers }} 个亏损</span>
     </div>
 

@@ -67,9 +67,8 @@ export const Analysis = {
       return [...this.s.zoneRows].sort((a, b) => b.profit - a.profit);
     },
 
-    /** 已实现 vs 浮动 */
+    /** 已落袋的盈亏（页面上只看这一个口径，预计/总计那块不展示） */
     realized() { return this.t.realizedProfit; },
-    unrealized() { return this.t.unrealizedProfit; },
 
     /** 滞销榜（在手 + 按天数排序） */
     stale() {
@@ -162,13 +161,9 @@ export const Analysis = {
       </div>
     </div>
 
-    <section class="kpi-row">
+    <section class="kpi-row two">
       <StatCard label="实际盈亏（已落袋）" :value="money(realized, { sign: true })" :tone="pnlTone(realized)"
         sub="已经落袋的部分（成交额 − 对应成本）" hint="只统计已卖出的资产，成本按估值权重分摊，跨视角口径一致" />
-      <StatCard label="预计盈亏（未落袋）" :value="money(unrealized, { sign: true })" :tone="pnlTone(unrealized)"
-        sub="在手资产 · 估值 − 成本 · 未落袋" hint="挂了牌的按上架价格，没挂的按成本" />
-      <StatCard label="总盈亏（实际 + 预计）" :value="money(t.totalProfit, { sign: true })" :tone="pnlTone(t.totalProfit)"
-        sub="已实现 + 浮动" big />
       <StatCard label="平均周转" :value="avgCycle == null ? '—' : avgCycle + ' 天'"
         :sub="'中位数 ' + (medianCycle == null ? '—' : medianCycle + ' 天')"
         hint="从买入到卖出的天数；只统计已售出的资产" />

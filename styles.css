@@ -175,6 +175,7 @@ code {
 /* ------------------------------------------------------------ KPI */
 
 .kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.kpi-row.two { grid-template-columns: repeat(2, 1fr); }
 .kpi-row.five { grid-template-columns: repeat(5, 1fr); gap: 12px; }
 .kpi-row.six { grid-template-columns: repeat(6, 1fr); gap: 10px; }
 .kpi-row.five .stat, .kpi-row.six .stat { padding: 13px 14px; }

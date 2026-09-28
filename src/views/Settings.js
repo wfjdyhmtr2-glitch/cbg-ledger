@@ -4,7 +4,7 @@
 
 import {
   state, auth, stats, logout, resetConfig,
-  exportJSON, importJSON, loadDemo, clearAll, notify,
+  exportJSON, importJSON, notify,
 } from '../core/store.js';
 import { money, pct } from '../core/format.js';
 import { calcFee, netFromGross } from '../core/fee.js';
@@ -13,7 +13,6 @@ export const Settings = {
   data() {
     return {
       busy: false,
-      confirmClear: false,
       confirmLogout: false,
       mergeImport: false,
       calcCat: 'role',
@@ -80,18 +79,6 @@ export const Settings = {
       reader.readAsText(file, 'utf-8');
       e.target.value = '';
     },
-    async doDemo() {
-      if (this.totalRecords && !confirm('会覆盖云端当前数据，继续？')) return;
-      this.busy = true;
-      await loadDemo();
-      this.busy = false;
-    },
-    async doClear() {
-      this.busy = true;
-      await clearAll();
-      this.busy = false;
-      this.confirmClear = false;
-    },
   },
   template: `
   <div class="page">
@@ -156,16 +143,6 @@ export const Settings = {
             选择备份文件
             <input type="file" accept=".json,application/json" @change="onFile" hidden />
           </label>
-        </div>
-        <div class="backup-item">
-          <h4>演示数据</h4>
-          <p class="muted">载入一批样例单据，先看看后台长什么样（会覆盖云端现有数据）。</p>
-          <button class="btn" :disabled="busy" @click="doDemo">载入演示数据</button>
-        </div>
-        <div class="backup-item danger-zone">
-          <h4>清空数据</h4>
-          <p class="muted">把你账号下的区服、角色、商品全部删掉，不可撤销。别人的账号不受影响。</p>
-          <button class="btn danger" @click="confirmClear = true">清空全部数据</button>
         </div>
       </div>
     </section>
@@ -265,18 +242,6 @@ export const Settings = {
       <template #footer>
         <button class="btn" @click="confirmLogout = false">取消</button>
         <button class="btn danger" @click="doLogout">确认退出</button>
-      </template>
-    </Modal>
-
-    <Modal v-if="confirmClear" title="清空全部数据" width="440px" @close="confirmClear = false">
-      <p class="confirm-text">
-        确认清空？会把你账号下的 <b>{{ st.roles.length }}</b> 个角色、<b>{{ st.products.length }}</b> 件商品、<b>{{ st.assets ? st.assets.length : 0 }}</b> 件固定资产全部删除，且无法撤销。
-        <br /><br />
-        建议先「导出 JSON」做一份备份。
-      </p>
-      <template #footer>
-        <button class="btn" @click="confirmClear = false">取消</button>
-        <button class="btn danger" :disabled="busy" @click="doClear">确认清空</button>
       </template>
     </Modal>
 

@@ -559,18 +559,3 @@ export async function loadDemo() {
     state.loading = false;
   }
 }
-
-export async function clearAll() {
-  if (!adapter) return;
-  state.loading = true;
-  try {
-    await adapter.clear();
-    await reload();
-    notify('数据已清空', 'ok');
-  } catch (e) {
-    if (e.authExpired) { handleAuthExpired(); return; }
-    notify(`清空失败：${e.message}`, 'error');
-  } finally {
-    state.loading = false;
-  }
-}

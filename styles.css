@@ -708,7 +708,6 @@ tr.expanded > td { background: var(--card-2) !important; }
 .backup-item h4 { margin: 0; font-size: 13.5px; font-weight: 600; }
 .backup-item p { margin: 0 0 4px; font-size: 12px; line-height: 1.65; }
 .backup-item .btn { align-self: flex-start; }
-.danger-zone { border-color: rgba(229,83,75,.28); }
 
 .strong { font-weight: 600; }
 .row-highlight > td { background: var(--accent-dim); }

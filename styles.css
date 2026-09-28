@@ -617,7 +617,7 @@ tr.expanded > td { background: var(--card-2) !important; }
 /* ------------------------------------------------------------ 区服页 */
 
 .zone-summary {
-  display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px;
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px;
   background: var(--card); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 14px 18px;
 }

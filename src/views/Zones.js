@@ -82,13 +82,6 @@ export const Zones = {
           </span>
           <span class="zs-note">已卖出资产：回款 − 成本</span>
         </div>
-        <div class="zs-item">
-          <span class="zs-label">在库盈亏（未落袋）</span>
-          <span class="zs-value" :class="'pnl-' + pnlTone(grand.unrealizedProfit)">
-            {{ money(grand.unrealizedProfit, { sign: true }) }}
-          </span>
-          <span class="zs-note">在库资产：估值 − 未收回成本</span>
-        </div>
       </div>
 
       <div class="zone-grid">
